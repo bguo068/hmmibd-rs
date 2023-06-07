@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
   const double max_discord = 1.0;  // set < 1 to skip unrelated pairs
   const int nchrom = 14;           // 14 for falciparum
   const int min_snp_sep = 5;       // skip next snp(s) if too close to last one; in bp
-  const double rec_rate = 7.4e-7; // 7.4e-5 cM/bp or 13.5 kb/cM Miles et al, Genome Res 26:1288-1299 (2016)
+  double rec_rate = 7.4e-7; // 7.4e-5 cM/bp or 13.5 kb/cM Miles et al, Genome Res 26:1288-1299 (2016)
   //  const double rec_rate = 5.8e-7;   // 5.8e-5 cM/bp, or 17kb/cM
   const double fit_thresh_dpi = .001;
   const double fit_thresh_dk = .01;
@@ -68,11 +68,11 @@ int main(int argc, char **argv) {
   strcpy(usage_string, "Usage: hmm -i <input file, pop1> -o <output filename> [-I <input file, pop2>] \n"); 
   strcat(usage_string, "[-m <max fit iter>] [-f <allele freq file, pop1>] [-F <allele freq file, pop2>]\n");
   strcat(usage_string,  "[-b <file with samples to skip>] [-n <max N generation>]");
-  strcat(usage_string, "  [-g <file with sample pairs to use>]\n");
+  strcat(usage_string, "  [-g <file with sample pairs to use>] [-r <recomb_rate>]\n");
 
   opterr = 0;
   mflag = iflag1 = iflag2 = oflag = freq_flag1 = freq_flag2 = bflag = gflag = nflag = 0;
-  while ( (c = getopt(argc, argv, ":f:F:i:I:o:m:b:g:n:")) != -1) {
+  while ( (c = getopt(argc, argv, ":f:F:i:I:o:m:b:g:n:r:")) != -1) {
     switch(c) {
     case 'f':
       freq_flag1 = 1;
@@ -113,6 +113,9 @@ int main(int argc, char **argv) {
     case 'o':
       oflag = 1;
       strcpy(out_filebase, optarg);
+      break;
+    case 'r':
+      rec_rate = strtod(optarg, NULL);
       break;
     case ':':
       fprintf(stderr, "option %c requires an argument\n", optopt);
