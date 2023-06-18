@@ -20,19 +20,20 @@
 #include <string.h>
 #include <unistd.h>
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
   /* User-settable parameters */
   const double eps = .001; // error rate in genotype calls
   const int min_inform =
       10; // minimum number of informative sites in a pairwise
           //  comparison (those w/ minor allele)
   const double min_discord =
-      0.0; // minimum discordance in comparison; set > 0 to skip identical pairs
+      0.0;                        // minimum discordance in comparison; set > 0 to skip identical pairs
   const double max_discord = 1.0; // set < 1 to skip unrelated pairs
   const int nchrom = 14;          // 14 for falciparum
-  const int min_snp_sep = 5; // skip next snp(s) if too close to last one; in bp
-  double rec_rate = 7.4e-7;  // 7.4e-5 cM/bp or 13.5 kb/cM Miles et al, Genome
-                             // Res 26:1288-1299 (2016)
+  const int min_snp_sep = 5;      // skip next snp(s) if too close to last one; in bp
+  double rec_rate = 7.4e-7;       // 7.4e-5 cM/bp or 13.5 kb/cM Miles et al, Genome
+                                  // Res 26:1288-1299 (2016)
   //  const double rec_rate = 5.8e-7;   // 5.8e-5 cM/bp, or 17kb/cM
   const double fit_thresh_dpi = .001;
   const double fit_thresh_dk = .01;
@@ -96,8 +97,10 @@ int main(int argc, char **argv) {
   opterr = 0;
   mflag = iflag1 = iflag2 = oflag = freq_flag1 = freq_flag2 = bflag = gflag =
       nflag = 0;
-  while ((c = getopt(argc, argv, ":f:F:i:I:o:m:b:g:n:r:")) != -1) {
-    switch (c) {
+  while ((c = getopt(argc, argv, ":f:F:i:I:o:m:b:g:n:r:")) != -1)
+  {
+    switch (c)
+    {
     case 'f':
       freq_flag1 = 1;
       strcpy(freq_file1, optarg);
@@ -117,7 +120,8 @@ int main(int argc, char **argv) {
     case 'm':
       mflag = 1;
       niter = strtol(optarg, &erp, 10);
-      if (optarg == erp) {
+      if (optarg == erp)
+      {
         fprintf(stderr, "Invalid argument %s\n", optarg);
         exit(EXIT_FAILURE);
       }
@@ -150,11 +154,13 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (optind != argc || iflag1 == 0 || oflag == 0) {
+  if (optind != argc || iflag1 == 0 || oflag == 0)
+  {
     fprintf(stderr, "%s", usage_string);
     exit(EXIT_FAILURE);
   }
-  if (freq_flag2 == 1 && iflag2 == 0) {
+  if (freq_flag2 == 1 && iflag2 == 0)
+  {
     fprintf(
         stderr,
         "Inconsistent options: frequency file for 2nd population specified");
@@ -163,16 +169,20 @@ int main(int argc, char **argv) {
   }
 
   allcount1 = malloc((max_all + 1) * sizeof(int));
-  if (freq_flag1 == 1) {
+  if (freq_flag1 == 1)
+  {
     ff1 = fopen(freq_file1, "r");
-    if (ff1 == NULL) {
+    if (ff1 == NULL)
+    {
       fprintf(stderr, "Could not open frequency file %s\n", freq_file1);
       exit(EXIT_FAILURE);
     }
   }
-  if (freq_flag2 == 1) {
+  if (freq_flag2 == 1)
+  {
     ff2 = fopen(freq_file2, "r");
-    if (ff2 == NULL) {
+    if (ff2 == NULL)
+    {
       fprintf(stderr, "Could not open frequency file %s\n", freq_file2);
       exit(EXIT_FAILURE);
     }
@@ -187,48 +197,63 @@ int main(int argc, char **argv) {
   pos = malloc(max_snp * sizeof(int));
   start_chr = malloc((nchrom + 1) * sizeof(int));
   end_chr = calloc(nchrom + 1, sizeof(int));
-  for (isnp = 0; isnp < max_snp; isnp++) {
+  for (isnp = 0; isnp < max_snp; isnp++)
+  {
     freq1[isnp] = malloc((max_all + 1) * sizeof(double));
   }
   ffreq1 = malloc((max_all + 1) * sizeof(double));
-  for (chr = 1; chr <= nchrom; chr++) {
+  for (chr = 1; chr <= nchrom; chr++)
+  {
     start_chr[chr] = 10000000;
     end_chr[chr] = -1;
   }
-  for (isamp = 0; isamp < max_bad; isamp++) {
+  for (isamp = 0; isamp < max_bad; isamp++)
+  {
     bad_samp[isamp] = malloc(64 * sizeof(char));
   }
-  for (isamp = 0; isamp < max_good; isamp++) {
+  for (isamp = 0; isamp < max_good; isamp++)
+  {
     good_pair[0][isamp] = calloc(64, sizeof(char));
     good_pair[1][isamp] = calloc(64, sizeof(char));
   }
-  if (iflag2 == 1) {
+  if (iflag2 == 1)
+  {
     allcount2 = malloc((max_all + 1) * sizeof(int));
     freq2 = malloc(max_snp * sizeof(double *));
-    for (isnp = 0; isnp < max_snp; isnp++) {
+    for (isnp = 0; isnp < max_snp; isnp++)
+    {
       freq2[isnp] = malloc((max_all + 1) * sizeof(double));
     }
     ffreq2 = malloc((max_all + 1) * sizeof(double));
-  } else {
+  }
+  else
+  {
     allcount2 = allcount1;
     freq2 = freq1;
     ffreq2 = NULL;
   }
 
   ngood = nbad = 0;
-  if (bflag == 1) {
+  if (bflag == 1)
+  {
     inf1 = fopen(bad_file, "r");
-    if (inf1 == NULL) {
+    if (inf1 == NULL)
+    {
       fprintf(stderr, "Could not open file of bad samples: %s\n", bad_file);
       bflag = 0;
-    } else {
-      while (fgets(newLine1, linesize, inf1) != NULL) {
+    }
+    else
+    {
+      while (fgets(newLine1, linesize, inf1) != NULL)
+      {
         newLine1[strcspn(newLine1, "\r\n")] = 0;
         strncpy(bad_samp[nbad], newLine1, 63);
         nbad++;
-        if (nbad == max_bad) {
+        if (nbad == max_bad)
+        {
           bad_samp = realloc(bad_samp, 2 * max_bad * sizeof(char *));
-          for (isamp = max_bad; isamp < 2 * max_bad; isamp++) {
+          for (isamp = max_bad; isamp < 2 * max_bad; isamp++)
+          {
             bad_samp[isamp] = malloc(64 * sizeof(char));
           }
           max_bad *= 2;
@@ -238,20 +263,27 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (gflag == 1) {
+  if (gflag == 1)
+  {
     inf1 = fopen(good_file, "r");
-    if (inf1 == NULL) {
+    if (inf1 == NULL)
+    {
       fprintf(stderr, "Could not open file of good sample pairs: %s\n",
               good_file);
       gflag = 0;
-    } else {
-      while (fgets(newLine1, linesize, inf1) != NULL) {
+    }
+    else
+    {
+      while (fgets(newLine1, linesize, inf1) != NULL)
+      {
         newLine1[strcspn(newLine1, "\r\n")] = 0;
         for (running = newLine1, itoken = 0;
-             (token = strsep(&running, "\t")) != NULL && itoken < 2; itoken++) {
+             (token = strsep(&running, "\t")) != NULL && itoken < 2; itoken++)
+        {
           strncpy(good_pair[itoken][ngood], token, 63);
         }
-        if (good_pair[1][ngood][0] == 0) {
+        if (good_pair[1][ngood][0] == 0)
+        {
           fprintf(stderr,
                   "Skipped line with only one record in file of good sample "
                   "pairs: %s.\n",
@@ -259,10 +291,12 @@ int main(int argc, char **argv) {
           continue;
         }
         ngood++;
-        if (ngood == max_good) {
+        if (ngood == max_good)
+        {
           good_pair[0] = realloc(good_pair[0], 2 * max_good * sizeof(char *));
           good_pair[1] = realloc(good_pair[1], 2 * max_good * sizeof(char *));
-          for (isamp = max_good; isamp < 2 * max_good; isamp++) {
+          for (isamp = max_good; isamp < 2 * max_good; isamp++)
+          {
             good_pair[0][isamp] = calloc(64, sizeof(char));
             good_pair[1][isamp] = calloc(64, sizeof(char));
           }
@@ -274,27 +308,32 @@ int main(int argc, char **argv) {
   }
 
   inf1 = fopen(data_file1, "r");
-  if (inf1 == NULL) {
+  if (inf1 == NULL)
+  {
     fprintf(stderr, "Could not open input file %s\n", data_file1);
     exit(EXIT_FAILURE);
   }
-  if (iflag2 == 1) {
+  if (iflag2 == 1)
+  {
     inf2 = fopen(data_file2, "r");
-    if (inf2 == NULL) {
+    if (inf2 == NULL)
+    {
       fprintf(stderr, "Could not open input file %s\n", data_file2);
       exit(EXIT_FAILURE);
     }
   }
   sprintf(file, "%s.hmm.txt", out_filebase);
   outf = fopen(file, "w");
-  if (outf == NULL) {
+  if (outf == NULL)
+  {
     fprintf(stderr, "Could not open output file %s\n", file);
     exit(EXIT_FAILURE);
   }
   fprintf(outf, "sample1\tsample2\tchr\tstart\tend\tdifferent\tNsnp\n");
   sprintf(file, "%s.hmm_fract.txt", out_filebase);
   pf = fopen(file, "w");
-  if (pf == NULL) {
+  if (pf == NULL)
+  {
     fprintf(stderr, "Could not open output file %s\n", file);
     exit(EXIT_FAILURE);
   }
@@ -305,7 +344,8 @@ int main(int argc, char **argv) {
 
   // Check line size
   fgets(newLine1, linesize, inf1); // header1
-  while (strlen(newLine1) > (unsigned long)linesize - 2) {
+  while (strlen(newLine1) > (unsigned long)linesize - 2)
+  {
     fseek(inf1, 0, 0);
     linesize *= 2;
     free(newLine1);
@@ -317,8 +357,10 @@ int main(int argc, char **argv) {
   assert(head != NULL);
   strcpy(head, newLine1);
   for (running = newLine1, itoken = 0; (token = strsep(&running, "\t")) != NULL;
-       itoken++) {
-    if (itoken > 1) {
+       itoken++)
+  {
+    if (itoken > 1)
+    {
       nsample1++;
     }
   }
@@ -333,7 +375,8 @@ int main(int argc, char **argv) {
   assert(discord != NULL);
   use_pair = malloc(nsample1 * sizeof(int *)); // nsamp1 x nsamp2
   assert(use_pair != NULL);
-  for (isamp = 0; isamp < nsample1; isamp++) {
+  for (isamp = 0; isamp < nsample1; isamp++)
+  {
     geno1[isamp] = malloc(max_snp * sizeof(int));
     assert(geno1[isamp] != NULL);
     sample1[isamp] = malloc(64 * sizeof(char));
@@ -344,18 +387,23 @@ int main(int argc, char **argv) {
   // Parse header1, store sample names after screening for excluded sample ids
   isamp = nsample_use1 = nsample_use2 = 0;
   for (running = head, itoken = 0; (token = strsep(&running, "\t")) != NULL;
-       itoken++) {
-    if (itoken > 1) {
+       itoken++)
+  {
+    if (itoken > 1)
+    {
       strncpy(sample1[isamp], token, 63);
       use_sample1[isamp] = 1;
-      for (ibad = 0; ibad < nbad; ibad++) {
-        if (strcmp(token, bad_samp[ibad]) == 0) {
+      for (ibad = 0; ibad < nbad; ibad++)
+      {
+        if (strcmp(token, bad_samp[ibad]) == 0)
+        {
           use_sample1[isamp] = 0;
           fprintf(stdout, "killing sample %s\n", token);
           break;
         }
       }
-      if (use_sample1[isamp] == 1) {
+      if (use_sample1[isamp] == 1)
+      {
         nsample_use1++;
       }
       isamp++;
@@ -366,9 +414,11 @@ int main(int argc, char **argv) {
   // way newLine2 only
   //  has to be allocated once, after both headers have been read and the line
   //  length possibly increased
-  if (iflag2 == 1) {
+  if (iflag2 == 1)
+  {
     fgets(newLine1, linesize, inf2); // header2
-    while (strlen(newLine1) > (unsigned long)linesize - 2) {
+    while (strlen(newLine1) > (unsigned long)linesize - 2)
+    {
       fseek(inf2, 0, 0);
       linesize *= 2;
       free(newLine1);
@@ -382,8 +432,10 @@ int main(int argc, char **argv) {
     assert(head != NULL);
     strcpy(head, newLine1);
     for (running = newLine1, itoken = 0;
-         (token = strsep(&running, "\t")) != NULL; itoken++) {
-      if (itoken > 1) {
+         (token = strsep(&running, "\t")) != NULL; itoken++)
+    {
+      if (itoken > 1)
+      {
         nsample2++;
       }
     }
@@ -394,20 +446,24 @@ int main(int argc, char **argv) {
     assert(geno2 != NULL);
     use_sample2 = malloc(nsample2 * sizeof(int));
     assert(use_sample2 != NULL);
-    for (isamp = 0; isamp < nsample2; isamp++) {
+    for (isamp = 0; isamp < nsample2; isamp++)
+    {
       geno2[isamp] = malloc(max_snp * sizeof(int));
       assert(geno2[isamp] != NULL);
       sample2[isamp] = malloc(64 * sizeof(char));
       assert(sample2[isamp] != NULL);
     }
-  } else {
+  }
+  else
+  {
     sample2 = sample1;
     nsample2 = nsample1;
     geno2 = geno1;
     use_sample2 = use_sample1;
   }
 
-  for (isamp = 0; isamp < nsample1; isamp++) {
+  for (isamp = 0; isamp < nsample1; isamp++)
+  {
     use_pair[isamp] = calloc(nsample2, sizeof(int));
     assert(use_pair[isamp] != NULL);
     discord[isamp] = malloc(nsample2 * sizeof(double));
@@ -415,27 +471,35 @@ int main(int argc, char **argv) {
   }
 
   // Parse header2, store sample names after screening for excluded sample ids
-  if (iflag2 == 1) {
+  if (iflag2 == 1)
+  {
     isamp = 0;
     for (running = head, itoken = 0; (token = strsep(&running, "\t")) != NULL;
-         itoken++) {
-      if (itoken > 1) {
+         itoken++)
+    {
+      if (itoken > 1)
+      {
         strncpy(sample2[isamp], token, 63);
         use_sample2[isamp] = 1;
-        for (ibad = 0; ibad < nbad; ibad++) {
-          if (strcmp(token, bad_samp[ibad]) == 0) {
+        for (ibad = 0; ibad < nbad; ibad++)
+        {
+          if (strcmp(token, bad_samp[ibad]) == 0)
+          {
             use_sample2[isamp] = 0;
             fprintf(stdout, "killing sample %s\n", token);
             break;
           }
         }
-        if (use_sample2[isamp] == 1) {
+        if (use_sample2[isamp] == 1)
+        {
           nsample_use2++;
         }
         isamp++;
       }
     }
-  } else {
+  }
+  else
+  {
     // Single pop
     nsample_use2 = nsample_use1;
   }
@@ -446,30 +510,41 @@ int main(int argc, char **argv) {
   fprintf(stdout, "Pairs accepted with discordance in range (%.2f%%, %.2f%%)\n",
           min_discord * 100, max_discord * 100);
   fprintf(stdout, "Genotyping error rate: %.2f%%\n", eps * 100);
-  if (iflag2 == 1) {
+  if (iflag2 == 1)
+  {
     fprintf(stdout, "Input files: %s and %s\n", data_file1, data_file2);
-  } else {
+  }
+  else
+  {
     fprintf(stdout, "Input file: %s\n", data_file1);
   }
   fprintf(stdout, "Frequency files: ");
-  if (freq_flag1 == 1) {
+  if (freq_flag1 == 1)
+  {
     fprintf(stdout, "%s and ", freq_file1);
-  } else {
+  }
+  else
+  {
     fprintf(stdout, "none and ");
   }
-  if (freq_flag2 == 1) {
+  if (freq_flag2 == 1)
+  {
     fprintf(stdout, "%s\n", freq_file2);
-  } else {
+  }
+  else
+  {
     fprintf(stdout, "none\n");
   }
-  if (nflag == 1) {
+  if (nflag == 1)
+  {
     fprintf(stdout, "Number of generations capped at %.2f\n", k_rec_max);
   }
 
   npair = nsample_use1 * nsample_use2;
   npair_report = nsample_use1 * (nsample_use1 - 1) / 2;
   fprintf(stdout, "pop1 nsample: %d used: %d", nsample1, nsample_use1);
-  if (iflag2 == 1) {
+  if (iflag2 == 1)
+  {
     npair_report = npair;
     fprintf(stdout, "  pop2 nsample: %d used: %d", nsample2, nsample_use2);
   }
@@ -481,21 +556,29 @@ int main(int argc, char **argv) {
 
   // All pairs are to be used by default, unless we've read a file of good pairs
   //   Except single-pop samples should not be compared with themselves
-  for (isamp = 0; isamp < nsample1; isamp++) {
+  for (isamp = 0; isamp < nsample1; isamp++)
+  {
     jstart = (iflag2 == 1) ? 0 : isamp + 1;
-    for (jsamp = jstart; jsamp < nsample2; jsamp++) {
-      if (gflag == 1) {
+    for (jsamp = jstart; jsamp < nsample2; jsamp++)
+    {
+      if (gflag == 1)
+      {
         use_pair[isamp][jsamp] = 0;
-        for (ipair = 0; ipair < ngood; ipair++) {
+        for (ipair = 0; ipair < ngood; ipair++)
+        {
           if ((strcmp(good_pair[0][ipair], sample1[isamp]) == 0 &&
                strcmp(good_pair[1][ipair], sample2[jsamp]) == 0) ||
               (strcmp(good_pair[0][ipair], sample2[jsamp]) == 0 &&
-               strcmp(good_pair[1][ipair], sample1[isamp]) == 0)) {
+               strcmp(good_pair[1][ipair], sample1[isamp]) == 0))
+          {
             use_pair[isamp][jsamp] = 1;
           }
         }
-      } else {
-        if (isamp != jsamp || iflag2 == 1) {
+      }
+      else
+      {
+        if (isamp != jsamp || iflag2 == 1)
+        {
           use_pair[isamp][jsamp] = 1;
         }
       }
@@ -504,40 +587,49 @@ int main(int argc, char **argv) {
 
   nsnp = 0;
   iline = -1;
-  while (fgets(newLine1, linesize, inf1) != NULL) {
+  while (fgets(newLine1, linesize, inf1) != NULL)
+  {
     newLine1[strcspn(newLine1, "\r\n")] = 0;
-    if (iflag2 == 1) {
+    if (iflag2 == 1)
+    {
       fgets(newLine2, linesize, inf2);
       newLine2[strcspn(newLine2, "\r\n")] = 0;
     }
-    if (nsnp == max_snp) {
+    if (nsnp == max_snp)
+    {
       nall = realloc(nall, 2 * max_snp * sizeof(int));
       assert(nall != NULL);
       pos = realloc(pos, 2 * max_snp * sizeof(int));
       assert(pos != NULL);
-      for (isamp = 0; isamp < nsample1; isamp++) {
+      for (isamp = 0; isamp < nsample1; isamp++)
+      {
         geno1[isamp] = realloc(geno1[isamp], 2 * max_snp * sizeof(int));
         assert(geno1[isamp] != NULL);
       }
       freq1 = realloc(freq1, 2 * max_snp * sizeof(double *));
       assert(freq1 != NULL);
-      for (isnp = max_snp; isnp < 2 * max_snp; isnp++) {
+      for (isnp = max_snp; isnp < 2 * max_snp; isnp++)
+      {
         freq1[isnp] = malloc((max_all + 1) * sizeof(double));
         assert(freq1[isnp] != NULL);
       }
-      if (iflag2 == 1) {
-        for (isamp = 0; isamp < nsample2; isamp++) {
+      if (iflag2 == 1)
+      {
+        for (isamp = 0; isamp < nsample2; isamp++)
+        {
           geno2[isamp] = realloc(geno2[isamp], 2 * max_snp * sizeof(int));
           assert(geno2[isamp] != NULL);
         }
         freq2 = realloc(freq2, 2 * max_snp * sizeof(double *));
         assert(freq2 != NULL);
-        for (isnp = max_snp; isnp < 2 * max_snp; isnp++) {
+        for (isnp = max_snp; isnp < 2 * max_snp; isnp++)
+        {
           freq2[isnp] = malloc((max_all + 1) * sizeof(double));
           assert(freq2[isnp] != NULL);
         }
       } // end if iflag2 == 1
-      else {
+      else
+      {
         geno2 = geno1;
         freq2 = freq1;
       }
@@ -545,136 +637,179 @@ int main(int argc, char **argv) {
     } // end reallocating space
     iline++;
     totall1 = totall2 = killit = 0;
-    for (iall = 0; iall <= max_all; iall++) {
+    for (iall = 0; iall <= max_all; iall++)
+    {
       allcount1[iall] = allcount2[iall] = 0;
     }
 
     // Parse line, pop1
     for (running = newLine1, itoken = 0;
-         (token = strsep(&running, "\t")) != NULL; itoken++) {
-      if (itoken == 0) {
+         (token = strsep(&running, "\t")) != NULL; itoken++)
+    {
+      if (itoken == 0)
+      {
         chr = strtol(token, &erp, 10);
-        if (token == erp) {
+        if (token == erp)
+        {
           fprintf(stderr, "Invalid chromosome %s (must be integer)\n", token);
           exit(EXIT_FAILURE);
         }
-      } else if (itoken == 1) {
+      }
+      else if (itoken == 1)
+      {
         pos[nsnp] = strtol(token, &erp, 10);
-        if (token == erp) {
+        if (token == erp)
+        {
           fprintf(stderr, "Invalid position %s (must be integer)\n", token);
           exit(EXIT_FAILURE);
         }
         if ((chr == prev_chrom && pos[nsnp] < pos[nsnp - 1]) ||
-            chr < prev_chrom) {
+            chr < prev_chrom)
+        {
           fprintf(stderr, "Variants are out of order\n");
           exit(EXIT_FAILURE);
         }
         if (nsnp > 0 && chr == prev_chrom &&
-            pos[nsnp] - pos[nsnp - 1] < min_snp_sep) {
+            pos[nsnp] - pos[nsnp - 1] < min_snp_sep)
+        {
           nskipped++;
           killit = 1;
           break;
         }
-      } else {
+      }
+      else
+      {
         all = strtol(token, &erp, 10);
-        if (token == erp) {
+        if (token == erp)
+        {
           fprintf(stderr, "Invalid allele %s (must be integer)\n", token);
           exit(EXIT_FAILURE);
         }
-        if (all > max_all) {
+        if (all > max_all)
+        {
           killit = 1;
           ex_all++;
           break;
         }
         geno1[itoken - 2][nsnp] = all;
-        if (use_sample1[itoken - 2] == 1) {
-          if (all >= 0) {
+        if (use_sample1[itoken - 2] == 1)
+        {
+          if (all >= 0)
+          {
             allcount1[all]++;
             totall1++;
           }
         }
       }
     } // end parsing input line
-    if (freq_flag1 != 1 && totall1 == 0) {
+    if (freq_flag1 != 1 && totall1 == 0)
+    {
       killit = 1;
     } // no valid calls to calculate frequency
 
     // Parse line, pop2
-    if (iflag2 == 1) {
+    if (iflag2 == 1)
+    {
       for (running = newLine2, itoken = 0;
-           (token = strsep(&running, "\t")) != NULL; itoken++) {
-        if (itoken == 0) {
+           (token = strsep(&running, "\t")) != NULL; itoken++)
+      {
+        if (itoken == 0)
+        {
           chr2 = strtol(token, &erp, 10);
-          if (token == erp) {
+          if (token == erp)
+          {
             fprintf(stderr, "Invalid chromosome %s (must be integer)\n", token);
             exit(EXIT_FAILURE);
           }
-        } else if (itoken == 1) {
+        }
+        else if (itoken == 1)
+        {
           pos2 = strtol(token, &erp, 10);
-          if (token == erp) {
+          if (token == erp)
+          {
             fprintf(stderr, "Invalid position %s (must be integer)\n", token);
             exit(EXIT_FAILURE);
           }
-          if (pos2 != pos[nsnp] || chr2 != chr) {
+          if (pos2 != pos[nsnp] || chr2 != chr)
+          {
             fprintf(stderr, "Data files do not agree on SNPs\n");
             exit(EXIT_FAILURE);
           }
-        } else {
+        }
+        else
+        {
           all = strtol(token, &erp, 10);
-          if (token == erp) {
+          if (token == erp)
+          {
             fprintf(stderr, "Invalid allele %s (must be integer)\n", token);
             exit(EXIT_FAILURE);
           }
-          if (all > max_all) {
+          if (all > max_all)
+          {
             killit = 1;
             ex_all++;
             break;
           }
           geno2[itoken - 2][nsnp] = all;
-          if (use_sample2[itoken - 2] == 1) {
-            if (all >= 0) {
+          if (use_sample2[itoken - 2] == 1)
+          {
+            if (all >= 0)
+            {
               allcount2[all]++;
               totall2++;
             }
           }
         }
       } // end parsing 2nd input line
-      if (freq_flag2 != 1 && totall2 == 0) {
+      if (freq_flag2 != 1 && totall2 == 0)
+      {
         killit = 1;
       } // no valid calls to calculate frequency
     }
-    if (chr > nchrom) {
+    if (chr > nchrom)
+    {
       killit = 1;
     }
 
     // if reading freqs from file, read one (pop1)
-    if (freq_flag1 == 1) {
+    if (freq_flag1 == 1)
+    {
       // Clear previous frequencies (since might have skipped previous snp via
       // 'continue')
-      for (iall = 0; iall <= max_all; iall++) {
+      for (iall = 0; iall <= max_all; iall++)
+      {
         ffreq1[iall] = 0;
       }
       fgets(newLine1, linesize, ff1);
       fpos = fchr = 0;
       for (running = newLine1, itoken = 0;
-           (token = strsep(&running, "\t")) != NULL; itoken++) {
-        if (itoken == 0) {
+           (token = strsep(&running, "\t")) != NULL; itoken++)
+      {
+        if (itoken == 0)
+        {
           fchr = strtol(token, &erp, 10);
-          if (token == erp) {
+          if (token == erp)
+          {
             fprintf(stderr, "Invalid chromosome %s (must be integer)\n", token);
             exit(EXIT_FAILURE);
           }
-        } else if (itoken == 1) {
+        }
+        else if (itoken == 1)
+        {
           fpos = strtol(token, &erp, 10);
-          if (token == erp) {
+          if (token == erp)
+          {
             fprintf(stderr, "Invalid position %s (must be integer)\n", token);
             exit(EXIT_FAILURE);
           }
-        } else if (itoken > 1) {
+        }
+        else if (itoken > 1)
+        {
           ffreq1[itoken - 2] = strtod(token, NULL);
         }
       }
-      if (fchr != chr || fpos != pos[nsnp]) {
+      if (fchr != chr || fpos != pos[nsnp])
+      {
         fprintf(stderr,
                 "Mismatch between data file and frequency file. Data file "
                 "(chr/pos): %d/%d vs freq file: %d/%d\n",
@@ -684,33 +819,44 @@ int main(int argc, char **argv) {
     }
 
     // if reading freqs from file, read one (pop2)
-    if (freq_flag2 == 1) {
+    if (freq_flag2 == 1)
+    {
       // Clear previous frequencies (since might have skipped previous snp via
       // 'continue')
-      for (iall = 0; iall <= max_all; iall++) {
+      for (iall = 0; iall <= max_all; iall++)
+      {
         ffreq2[iall] = 0;
       }
       fgets(newLine2, linesize, ff2);
       fpos = fchr = 0;
       for (running = newLine2, itoken = 0;
-           (token = strsep(&running, "\t")) != NULL; itoken++) {
-        if (itoken == 0) {
+           (token = strsep(&running, "\t")) != NULL; itoken++)
+      {
+        if (itoken == 0)
+        {
           fchr = strtol(token, &erp, 10);
-          if (token == erp) {
+          if (token == erp)
+          {
             fprintf(stderr, "Invalid chromosome %s (must be integer)\n", token);
             exit(EXIT_FAILURE);
           }
-        } else if (itoken == 1) {
+        }
+        else if (itoken == 1)
+        {
           fpos = strtol(token, &erp, 10);
-          if (token == erp) {
+          if (token == erp)
+          {
             fprintf(stderr, "Invalid position %s (must be integer)\n", token);
             exit(EXIT_FAILURE);
           }
-        } else if (itoken > 1) {
+        }
+        else if (itoken > 1)
+        {
           ffreq2[itoken - 2] = strtod(token, NULL);
         }
       }
-      if (fchr != chr || fpos != pos[nsnp]) {
+      if (fchr != chr || fpos != pos[nsnp])
+      {
         fprintf(stderr,
                 "Mismatch between data file and frequency file. Data file "
                 "(chr/pos): %d/%d vs freq file: %d/%d\n",
@@ -723,98 +869,135 @@ int main(int argc, char **argv) {
     majall = -1;
     maxfreq = 0;
     // process this variant -- calculate allele frequencies for each pop
-    for (iall = 0; iall <= max_all; iall++) {
-      if (freq_flag1 == 1) {
+    for (iall = 0; iall <= max_all; iall++)
+    {
+      if (freq_flag1 == 1)
+      {
         freq1[nsnp][iall] = ffreq1[iall];
-      } else {
+      }
+      else
+      {
         freq1[nsnp][iall] = (double)allcount1[iall] / totall1;
       }
-      if (iflag2 == 1) {
-        if (freq_flag2 == 1) {
+      if (iflag2 == 1)
+      {
+        if (freq_flag2 == 1)
+        {
           freq2[nsnp][iall] = ffreq2[iall];
-        } else {
+        }
+        else
+        {
           freq2[nsnp][iall] = (double)allcount2[iall] / totall2;
         }
       }
       fmean = (freq1[nsnp][iall] + freq2[nsnp][iall]) / 2;
-      if (fmean > maxfreq) {
+      if (fmean > maxfreq)
+      {
         maxfreq = fmean;
         majall = iall;
       }
-      if (fmean > 0) {
+      if (fmean > 0)
+      {
         nall[nsnp]++;
       }
     }
-    if (killit == 1) {
+    if (killit == 1)
+    {
       continue;
     }
     prev_chrom = chr;
 
-    if (nall[nsnp] > 2) {
+    if (nall[nsnp] > 2)
+    {
       ntri++;
     }
 
     // Tabulate differences by pair for calculating discordance
     ipair = 0;
-    for (isamp = 0; isamp < nsample1; isamp++) {
-      if (use_sample1[isamp] == 0) {
+    for (isamp = 0; isamp < nsample1; isamp++)
+    {
+      if (use_sample1[isamp] == 0)
+      {
         continue;
       }
       // If 2 pops, need to loop over all combinations, but not if one pop
       jstart = (iflag2 == 1) ? 0 : isamp + 1;
-      for (jsamp = jstart; jsamp < nsample2; jsamp++) {
-        if (use_sample2[jsamp] == 0) {
+      for (jsamp = jstart; jsamp < nsample2; jsamp++)
+      {
+        if (use_sample2[jsamp] == 0)
+        {
           continue;
         }
-        if (geno1[isamp][nsnp] != -1 && geno2[jsamp][nsnp] != -1) {
-          if (geno1[isamp][nsnp] == geno2[jsamp][nsnp]) {
-            if (geno1[isamp][nsnp] != majall) {
+        if (geno1[isamp][nsnp] != -1 && geno2[jsamp][nsnp] != -1)
+        {
+          if (geno1[isamp][nsnp] == geno2[jsamp][nsnp])
+          {
+            if (geno1[isamp][nsnp] != majall)
+            {
               same_min[ipair]++;
             }
-          } else {
+          }
+          else
+          {
             diff[ipair]++;
           }
-        } else {
+        }
+        else
+        {
           nmiss_bypair[ipair]++;
         }
         ipair++;
       }
     }
-    if (nsnp < start_chr[chr]) {
+    if (nsnp < start_chr[chr])
+    {
       start_chr[chr] = nsnp;
     }
-    if (nsnp > end_chr[chr]) {
+    if (nsnp > end_chr[chr])
+    {
       end_chr[chr] = nsnp;
     }
     nsnp++;
   }
 
   fprintf(stdout, "Variants skipped for spacing: %d\n", nskipped);
-  if (ex_all > 0) {
+  if (ex_all > 0)
+  {
     fprintf(stdout, "Variants with too many alleles: %d\n", ex_all);
   }
   fprintf(stdout, "%d variants used,\t%d with >2 alleles\n", nsnp, ntri);
   ipair = 0;
-  for (isamp = 0; isamp < nsample1; isamp++) {
-    if (use_sample1[isamp] == 0) {
+  for (isamp = 0; isamp < nsample1; isamp++)
+  {
+    if (use_sample1[isamp] == 0)
+    {
       continue;
     }
     jstart = (iflag2 == 1) ? 0 : isamp + 1;
-    for (jsamp = jstart; jsamp < nsample2; jsamp++) {
-      if (use_sample2[jsamp] == 0) {
+    for (jsamp = jstart; jsamp < nsample2; jsamp++)
+    {
+      if (use_sample2[jsamp] == 0)
+      {
         continue;
       }
       sum = diff[ipair] + same_min[ipair];
-      if (sum == 0) {
+      if (sum == 0)
+      {
         discord[isamp][jsamp] = 0;
-      } else {
+      }
+      else
+      {
         discord[isamp][jsamp] = (double)diff[ipair] / sum;
       }
-      if (use_pair[isamp][jsamp] == 1) {
+      if (use_pair[isamp][jsamp] == 1)
+      {
         if (discord[isamp][jsamp] > max_discord || sum < min_inform ||
-            discord[isamp][jsamp] < min_discord) {
+            discord[isamp][jsamp] < min_discord)
+        {
           use_pair[isamp][jsamp] = 0;
-        } else {
+        }
+        else
+        {
           nuse_pair++;
         }
       }
@@ -827,12 +1010,15 @@ int main(int argc, char **argv) {
           nuse_pair);
 
   maxlen = 0;
-  for (chr = 1; chr <= nchrom; chr++) {
-    if (end_chr[chr] - start_chr[chr] + 1 > maxlen) {
+  for (chr = 1; chr <= nchrom; chr++)
+  {
+    if (end_chr[chr] - start_chr[chr] + 1 > maxlen)
+    {
       maxlen = end_chr[chr] - start_chr[chr] + 1;
     }
   }
-  for (is = 0; is < 2; is++) {
+  for (is = 0; is < 2; is++)
+  {
     psi[is] = malloc(maxlen * sizeof(int));
     phi[is] = malloc(maxlen * sizeof(double));
     b[is] = malloc(maxlen * sizeof(double));
@@ -842,44 +1028,75 @@ int main(int argc, char **argv) {
   scale = malloc(maxlen * sizeof(double));
   traj = malloc(maxlen * sizeof(int));
 
+  // BG hmm starts
   ipair = 0;
-  for (isamp = 0; isamp < nsample1; isamp++) {
-    if (use_sample1[isamp] == 0) {
+  for (isamp = 0; isamp < nsample1; isamp++)
+  {
+    // skip samples as indicated
+    if (use_sample1[isamp] == 0)
+    {
       continue;
     }
+    // iterate sample, jump index depending whether two popultions are provided
     jstart = (iflag2 == 1) ? 0 : isamp + 1;
-    for (jsamp = jstart; jsamp < nsample2; jsamp++) {
-      if (use_sample2[jsamp] == 0) {
+    for (jsamp = jstart; jsamp < nsample2; jsamp++)
+    {
+      // skip samples as indicated
+      if (use_sample2[jsamp] == 0)
+      {
         continue;
       }
       sum = diff[ipair] + same_min[ipair];
-      if (use_pair[isamp][jsamp] == 1) {
+      // skip pairs as indicated
+      if (use_pair[isamp][jsamp] == 1)
+      {
+        // initialize for a pair of samples
         last_prob = 0;
-        last_pi = pi[0] = pinit[0]; // initialize with prior
+        last_pi = pi[0] = pinit[0]; // initialize with prior, was 0.5
         pi[1] = pinit[1];
         last_krec = k_rec = k_rec_init;
         finish_fit = 0;
-        for (iter = 0; iter < niter; iter++) {
+        // iterate to update model
+        for (iter = 0; iter < niter; iter++)
+        {
+          // running variable to reestimate parameters: k_rec
           trans_obs = trans_pred = ntrans = 0;
+          // seq_ibd/seq_dbd: running sums of total length ibd or not ibd
+          // count_ibd_fb: running sums of probs of IBD->IBD transision or
+          // notIBD->notIBD transition
+          // TODO: seq_ibd_fb ??
           seq_ibd = seq_dbd = count_ibd_fb = count_dbd_fb = seq_ibd_fb =
               seq_dbd_fb = 0;
+          // count_ibd_vit: total number of site IBD (number of site with
+          // State=IBD) count_dbd_vit: total number of site IBD (number of site
+          // with State=IBD)
           count_ibd_vit = count_dbd_vit = 0;
+          // max score of hidden path given observation, is P* in rabiner 89
+          // notation
           max_phi = 0;
-          for (chr = 1; chr <= nchrom; chr++) {
+          for (chr = 1; chr <= nchrom; chr++)
+          {
             nsite = 0;
-            if (end_chr[chr] < 0) {
+            if (end_chr[chr] < 0)
+            {
               continue;
             }
             chrlen = pos[end_chr[chr]] - pos[start_chr[chr]];
-            for (isnp = start_chr[chr]; isnp <= end_chr[chr]; isnp++) {
+            for (isnp = start_chr[chr]; isnp <= end_chr[chr]; isnp++)
+            {
               snp_ind = isnp - start_chr[chr];
               gi = geno1[isamp][isnp];
               gj = geno2[jsamp][isnp];
               pright = 1 - eps * (nall[isnp] - 1);
-              if (gi == -1 || gj == -1) {
+
+              // calculate b across chromosome
+              if (gi == -1 || gj == -1)
+              {
                 // O = n (missing data)
                 b[0][snp_ind] = b[1][snp_ind] = 1.0;
-              } else if (gi == gj) {
+              }
+              else if (gi == gj)
+              {
                 // homozygote
                 nsite++;
                 fmean = (freq1[isnp][gi] + freq2[isnp][gi]) / 2;
@@ -890,7 +1107,9 @@ int main(int argc, char **argv) {
                     pright * eps * freq1[isnp][gi] * (1 - freq2[isnp][gj]) +
                     pright * eps * (1 - freq1[isnp][gi]) * freq2[isnp][gj] +
                     eps * eps * (1 - freq1[isnp][gi]) * (1 - freq2[isnp][gj]);
-              } else {
+              }
+              else
+              {
                 // O = aA
                 nsite++;
                 fmeani = (freq1[isnp][gi] + freq2[isnp][gi]) / 2;
@@ -904,25 +1123,38 @@ int main(int argc, char **argv) {
                          freq2[isnp][gj] * (1 - freq1[isnp][gi])) +
                     eps * eps * (1 - freq1[isnp][gi]) * (1 - freq2[isnp][gj]);
               }
-              if (isnp == start_chr[chr]) {
+              // printf("isnp=%d\tpos=%d\tb[0]=%0.5f\tb[1]=%0.5f\tgi=%d\tgj=%d\tpright=%0.5f\n", snp_ind, pos[isnp], b[0][snp_ind], b[1][snp_ind], gi, gj, pright);
+              /////////////////////////////////////////////////////////////////
+              // forward algorithm and viterb algorithm at the same time
+              //
+              // init alpha and delta
+              if (isnp == start_chr[chr])
+              {
                 psi[0][snp_ind] = psi[1][snp_ind] = 0;
-                for (is = 0; is < 2; is++) {
+                for (is = 0; is < 2; is++)
+                {
                   phi[is][snp_ind] = log(pi[is]) + log(b[is][snp_ind]);
                   alpha[is][snp_ind] = pi[is] * b[is][snp_ind];
                   scale[is] = 1.;
                 }
-              } else {
+              }
+              else
+              {
+                // calcuate a, alpha and psi and delta
                 ptrans = k_rec * rec_rate * (pos[isnp] - pos[isnp - 1]);
                 a[0][1] = 1 - pi[0] - (1 - pi[0]) * exp(-ptrans);
                 a[1][0] = 1 - pi[1] - (1 - pi[1]) * exp(-ptrans);
                 a[0][0] = 1 - a[0][1];
                 a[1][1] = 1 - a[1][0];
-                for (js = 0; js < 2; js++) { // index over state of current snp
+                for (js = 0; js < 2; js++)
+                { // index over state of current snp
                   maxval = -10000000;
                   alpha[js][snp_ind] = scale[snp_ind] = 0;
                   for (is = 0; is < 2;
-                       is++) { // index over state of previous snp
-                    if (phi[is][snp_ind - 1] + log(a[is][js]) > maxval) {
+                       is++)
+                  { // index over state of previous snp
+                    if (phi[is][snp_ind - 1] + log(a[is][js]) > maxval)
+                    {
                       maxval = phi[is][snp_ind - 1] + log(a[is][js]);
                       psi[js][snp_ind] = is;
                     }
@@ -932,56 +1164,83 @@ int main(int argc, char **argv) {
                   }
                   scale[snp_ind] += alpha[js][snp_ind];
                 }
-                for (js = 0; js < 2; js++) { // scale alpha to prevent underflow
-                                             // (Rabiner eqns 92)
+                for (js = 0; js < 2; js++)
+                { // scale alpha to prevent underflow
+                  // (Rabiner eqns 92)
                   alpha[js][snp_ind] /= scale[snp_ind];
                 }
               } // end if initializing/continuing
-            }   // end snp loop
+              // printf("isnp=%d\tpos=%d\tpsi0=%d\tpsi1=%d\tphi0=%0.4f\tphi1=%0.4f\talpha0=%0.4f\talpha1=%0.4f\n",
+              //        snp_ind, pos[isnp],
+              //        psi[0][snp_ind],
+              //        psi[1][snp_ind],
+              //        phi[0][snp_ind],
+              //        phi[1][snp_ind],
+              //        alpha[0][snp_ind],
+              //        alpha[1][snp_ind]);
+            } // end snp loop
             last_snp = snp_ind;
             max_phiL = phi[1][snp_ind];
-            if (phi[0][snp_ind] > phi[1][snp_ind]) {
+            if (phi[0][snp_ind] > phi[1][snp_ind])
+            {
               max_phiL = phi[0][snp_ind];
             }
             max = (phi[1][snp_ind] > phi[0][snp_ind]) ? 1 : 0;
             traj[snp_ind] = max;
             max_phi += max_phiL;
+            // printf("last_snp=%d\tmax=%d\tmax_phi=%.5f\n", last_snp, max, max_phi);
 
+            ////////////////////////////////////////////////////////
             // Loop backward to calculate betas (backward part of
             // forward-backward)
             isnp = end_chr[chr];
             snp_ind = isnp - start_chr[chr];
             beta[0][snp_ind] = beta[1][snp_ind] = 1;
-            for (isnp = end_chr[chr] - 1; isnp >= start_chr[chr]; isnp--) {
+            for (isnp = end_chr[chr] - 1; isnp >= start_chr[chr]; isnp--)
+            {
               snp_ind = isnp - start_chr[chr];
               ptrans = k_rec * rec_rate * (pos[isnp + 1] - pos[isnp]);
               a[0][1] = 1 - pi[0] - (1 - pi[0]) * exp(-ptrans);
               a[1][0] = 1 - pi[1] - (1 - pi[1]) * exp(-ptrans);
               a[0][0] = 1 - a[0][1];
               a[1][1] = 1 - a[1][0];
-              for (is = 0; is < 2; is++) { // index over state of current snp
+              for (is = 0; is < 2; is++)
+              { // index over state of current snp
                 beta[is][snp_ind] = 0;
-                for (js = 0; js < 2; js++) {
+                for (js = 0; js < 2; js++)
+                {
                   // index over state of previous snp (= snp+1, since looping
                   // backward)
                   beta[is][snp_ind] += beta[js][snp_ind + 1] * a[is][js] *
                                        b[js][snp_ind + 1] / scale[snp_ind];
                 }
               }
+              // printf("snp_ind=%d\tpos=%7d\tbeta0=%.4f\tbeta1=%0.4g\n",
+              //        snp_ind, pos[isnp],
+              //        beta[0][snp_ind],
+              //        beta[1][snp_ind]);
             }
             // inverse loop for Viterbi
-            for (snp_ind = last_snp - 1; snp_ind >= 0; snp_ind--) {
+            // printf("last_snp max: %d\n", max);
+            for (snp_ind = last_snp - 1; snp_ind >= 0; snp_ind--)
+            {
               traj[snp_ind] = psi[max][snp_ind + 1];
               max = traj[snp_ind];
+              // printf("snp_ind=%d\tpos=%7d\ttraj=%d\n",
+              //        snp_ind, pos[snp_ind + start_chr[chr]], traj[snp_ind]);
             }
+            ///////////////////////////////////////////////////////////////
             // tabulate FB results
-            for (snp_ind = 0; snp_ind <= last_snp; snp_ind++) {
+            for (snp_ind = 0; snp_ind <= last_snp; snp_ind++)
+            {
+              // eqn 39a
               p_ibd = alpha[0][snp_ind] * beta[0][snp_ind] /
                       (alpha[0][snp_ind] * beta[0][snp_ind] +
                        alpha[1][snp_ind] * beta[1][snp_ind]);
               count_ibd_fb += p_ibd;
               count_dbd_fb += (1 - p_ibd);
-              if (snp_ind < last_snp) {
+              if (snp_ind < last_snp)
+              {
                 isnp = snp_ind + start_chr[chr];
                 delpos = pos[isnp + 1] - pos[isnp];
                 ptrans = k_rec * rec_rate * delpos;
@@ -990,22 +1249,38 @@ int main(int argc, char **argv) {
                 a[0][0] = 1 - a[0][1];
                 a[1][1] = 1 - a[1][0];
                 xisum = 0;
-                for (is = 0; is < 2; is++) {
-                  for (js = 0; js < 2; js++) {
+                for (is = 0; is < 2; is++)
+                {
+                  for (js = 0; js < 2; js++)
+                  {
                     xi[is][js] = alpha[is][snp_ind] * a[is][js] *
                                  b[js][snp_ind + 1] * beta[js][snp_ind + 1];
                     xisum += xi[is][js];
                   }
                 }
-                for (is = 0; is < 2; is++) {
+                for (is = 0; is < 2; is++)
+                {
                   gamma[is] = 0;
-                  for (js = 0; js < 2; js++) {
+                  for (js = 0; js < 2; js++)
+                  {
                     xi[is][js] /= xisum;
                     gamma[is] += xi[is][js];
                   }
                 }
                 // xi(0,0) in Rabiner notation = prob of being in state 0 at t
                 // and 0 at t+1
+
+                // printf("snp_ind=%d\tpos=%7d\tdelpos=%d\txi=%.3f,%.3f,%.3f,%.3f\tgamma=%.3f,%.3f\ta01/a10=%.6f,%.6f\n",
+                //        snp_ind, pos[snp_ind + start_chr[chr]], delpos,
+                //        xi[0][0],
+                //        xi[0][1],
+                //        xi[1][0],
+                //        xi[1][1],
+                //        gamma[0],
+                //        gamma[1],
+                //        a[0][1],
+                //        a[1][0]);
+
                 seq_ibd_fb += delpos * xi[0][0];
                 seq_dbd_fb += delpos * xi[1][1];
                 trans_obs += (xi[0][1] + xi[1][0]);
@@ -1015,25 +1290,39 @@ int main(int argc, char **argv) {
 
             // print final Viterbi trajectory
             // start
-            if (iter == niter - 1 || finish_fit != 0) {
-              if (nsite > 0) {
+            if (iter == niter - 1 || finish_fit != 0)
+            {
+              if (nsite > 0)
+              {
                 fprintf(outf, "%s\t%s\t%d\t%d", sample1[isamp], sample2[jsamp],
-                        chr, pos[0 + start_chr[chr]]);
+                        chr,
+                        // IBD segment start position
+                        pos[0 + start_chr[chr]]);
                 start_snp = 0;
                 for (isnp = 1; isnp < end_chr[chr] - start_chr[chr] + 1;
-                     isnp++) {
-                  if (traj[isnp] != traj[isnp - 1]) {
+                     isnp++)
+                {
+                  if (traj[isnp] != traj[isnp - 1])
+                  {
                     ntrans++;
+                    // printf("trans\n");
                     add_seq = pos[isnp - 1 + start_chr[chr]] -
                               pos[start_snp + start_chr[chr]] + 1;
-                    if (traj[isnp - 1] == 0) {
+                    if (traj[isnp - 1] == 0)
+                    {
                       seq_ibd += add_seq;
-                    } else {
+                    }
+                    else
+                    {
                       seq_dbd += add_seq;
                     }
                     // end one and start another
                     fprintf(outf, "\t%d\t%d\t%d\n",
-                            pos[isnp - 1 + start_chr[chr]], traj[isnp - 1],
+                            // IBD segment end position
+                            pos[isnp - 1 + start_chr[chr]],
+                            // IBD state: 0 - IBD; 1: not-IBD
+                            traj[isnp - 1],
+                            // number of sites within this segment
                             isnp - start_snp);
                     fprintf(outf, "%s\t%s\t%d\t%d", sample1[isamp],
                             sample2[jsamp], chr, pos[isnp + start_chr[chr]]);
@@ -1043,19 +1332,26 @@ int main(int argc, char **argv) {
                 isnp = end_chr[chr] - start_chr[chr];
                 add_seq = pos[isnp + start_chr[chr]] -
                           pos[start_snp + start_chr[chr]] + 1;
-                if (traj[isnp] == 0) {
+                if (traj[isnp] == 0)
+                {
                   seq_ibd += add_seq;
-                } else {
+                }
+                else
+                {
                   seq_dbd += add_seq;
                 }
                 fprintf(outf, "\t%d\t%d\t%d\n", pos[end_chr[chr]], traj[isnp],
                         isnp - start_snp + 1);
                 // Tabulate sites by state for Viterbi trajectory
                 for (isnp = 0; isnp < end_chr[chr] - start_chr[chr] + 1;
-                     isnp++) {
-                  if (traj[isnp] == 0) {
+                     isnp++)
+                {
+                  if (traj[isnp] == 0)
+                  {
                     count_ibd_vit++;
-                  } else {
+                  }
+                  else
+                  {
                     count_dbd_vit++;
                   }
                 }
@@ -1065,10 +1361,12 @@ int main(int argc, char **argv) {
 
           // quit if fit converged on previous iteration; otherwise, update
           // parameters
-          if (finish_fit != 0) {
+          if (finish_fit != 0)
+          {
             break;
           }
-          if (count_ibd_fb + count_dbd_fb == 0) {
+          if (count_ibd_fb + count_dbd_fb == 0)
+          {
             fprintf(stderr,
                     "Insufficient information to estimate parameters.\n");
             fprintf(stderr, "Do you have only one variant per chromosome?\n");
@@ -1076,24 +1374,31 @@ int main(int argc, char **argv) {
           }
           pi[0] = count_ibd_fb / (count_ibd_fb + count_dbd_fb);
           k_rec *= trans_obs / trans_pred;
-          if (nflag == 1 && k_rec > k_rec_max) {
+          if (nflag == 1 && k_rec > k_rec_max)
+          {
             k_rec = k_rec_max;
           }
           // ad hoc attempt to avoid being trapped in extremum
-          if (iter < niter - 1 && finish_fit == 0) {
-            if (pi[0] < 1e-5) {
+          if (iter < niter - 1 && finish_fit == 0)
+          {
+            if (pi[0] < 1e-5)
+            {
               pi[0] = 1e-5;
-            } else if (pi[0] > 1 - 1e-5) {
+            }
+            else if (pi[0] > 1 - 1e-5)
+            {
               pi[0] = 1 - 1e-5;
             }
-            if (k_rec < 1e-5) {
+            if (k_rec < 1e-5)
+            {
               k_rec = 1e-5;
             }
           }
           pi[1] = 1 - pi[0];
           delpi = pi[0] - last_pi;
           delk = k_rec - last_krec;
-          if (nflag == 1 && k_rec > k_rec_max) {
+          if (nflag == 1 && k_rec > k_rec_max)
+          {
             delk = k_rec_max - last_krec;
           }
           delprob = max_phi - last_prob;
@@ -1104,17 +1409,52 @@ int main(int argc, char **argv) {
           // Evaluate fit
           if (fabs(delpi) < fit_thresh_dpi &&
               (fabs(delk) < fit_thresh_dk ||
-               fabs(delk / k_rec) < fit_thresh_drelk)) {
+               fabs(delk / k_rec) < fit_thresh_drelk))
+          {
             finish_fit = 1;
           }
+          // printf("iter=%d\tk_rec=%.4f\tpi[0]=%.4f\tmax_phi=%.4f\tfinish_fit=%d\n"
+          //        "count_ibd_fb=%.3f\tcount_dbd_fb=%.3f\ttrans_obs=%.3f\ttrans_pred=%.3f\n",
+          //        iter, k_rec, pi[0], max_phi, finish_fit, count_ibd_fb, count_dbd_fb, trans_obs, trans_pred);
         } // end parameter fitting loop
 
-        fprintf(pf, "%s\t%s\t%d\t%.4f\t%.5e\t%d\t%.3f\t%d\t%.5f\t%.5f\t%.5f\n",
-                sample1[isamp], sample2[jsamp], sum, discord[isamp][jsamp],
-                max_phi, iter, k_rec, ntrans,
-                (double)seq_ibd / (seq_ibd + seq_dbd),
-                count_ibd_fb / (count_ibd_fb + count_dbd_fb),
-                (double)count_ibd_vit / (count_ibd_vit + count_dbd_vit));
+        fprintf(
+            pf, "%s\t%s\t%d\t%.4f\t%.5e\t%d\t%.3f\t%d\t%.5f\t%.5f\t%.5f\n",
+            sample1[isamp], sample2[jsamp],
+            // N_informative_sites: Number of sites with data for both samples,
+            // and with at least one copy of the minor allele
+            sum,
+            // discordance: Fraction of informative sites that have different
+            // alleles in the two samples.
+            discord[isamp][jsamp],
+            // log_p: natural logarithm of the probability of the final set of
+            // state assignments and the set of observations
+            // (calculated with the Viterbi algorithm).
+            max_phi,
+            // Number of iterations carried out in EM fitting.
+            iter,
+            // N_generation: Estimated number of generations of recombination
+            // (1 of 2 free parameters in fit).
+            k_rec,
+            // N_state_transition: Number of transitions between IBD and
+            // not-IBD states across entire genome.
+            ntrans,
+            // seq_shared_best_traj: Fraction of sequence IBD based on the
+            // best state assignment, calculated as
+            // (seq in IBD segments) / (seq in IBD segments + seq in not-IBD
+            // segments). Segments in which there is a state transition between
+            // IBD and not-IBD are ignored.
+            (double)seq_ibd / (seq_ibd + seq_dbd),
+            // fract_sites_IBD: Fraction of variant sites called IBD calculated
+            // for all possible state assignments, weighted by their probability
+            // (equal to the marginal posterior probability of the IBD state
+            // calculated with the forward-backward algorithm)
+            count_ibd_fb / (count_ibd_fb + count_dbd_fb),
+            // fract_vit_sites_IBD: Fraction of variant sites called
+            // IBD calculated for the best state assignment
+            // (i.e. the result of the Viterbi algorithm, as in
+            // seq_shared_best_traj).
+            (double)count_ibd_vit / (count_ibd_vit + count_dbd_vit));
       } // end if use pair
       ipair++;
       //      if (ipair%1000 == 0) {fprintf(stdout, "Starting pair %d\n",
