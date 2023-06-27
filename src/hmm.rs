@@ -1,5 +1,5 @@
 use crate::{
-    data::{InputData, OutputFiles},
+    data::{InputData,SegRecord, FracRecord, OutputBuffer},
     matrix::AsOption,
     model::*,
 };
@@ -10,10 +10,10 @@ pub struct HmmRunner<'a> {
 
 impl<'a> HmmRunner<'a> {
     pub fn new(data: &'a InputData) -> Self {
-        Self { data }
+        Self { data, }
     }
 
-    pub fn run_hmm_on_pair(&self, pair: (usize, usize), out: &mut OutputFiles) {
+    pub fn run_hmm_on_pair(&self, pair: (usize, usize), out: &mut OutputBuffer<'a> ) {
         let mut ms = ModelParamState::new(self.data);
         let mut cv = PerChrModelVariables::new();
         let mut rs = RunningStats::new();
@@ -40,7 +40,7 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
     ) {
         let nchrom = self.data.genome.get_nchrom();
         for chrid in 0..nchrom as usize {
@@ -69,7 +69,7 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
     ) {
         cv.resize_and_clear(self.data, chrid);
         // iterator over snp forward to calculate
@@ -394,9 +394,8 @@ impl<'a> HmmRunner<'a> {
         chrid: usize,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
     ) {
-        use std::io::Write;
         if cv.nsites == 0 {
             return;
         }
@@ -430,12 +429,16 @@ impl<'a> HmmRunner<'a> {
             let end_pos = pos[start_chr + isnp - 1] - gw_chr_starts;
             let ibd = cv.traj[isnp - 1];
             let n_snp = isnp - start_snp;
-            write!(
-                &mut out.seg_file,
-                "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-            )
-            .unwrap();
-            // write!(&mut out.seg_file, "{:?}", cv.traj).unwrap();
+            let seg = SegRecord{
+                sample1, sample2, chrname, start_pos, end_pos, ibd, n_snp
+            };
+            out.add_seg(seg);
+            // write!(
+            //     &mut out.seg_file,
+            //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
+            // )
+            // .unwrap();
+            // // write!(&mut out.seg_file, "{:?}", cv.traj).unwrap();
 
             start_snp = isnp;
         }
@@ -450,11 +453,15 @@ impl<'a> HmmRunner<'a> {
             true => rs.seq_ibd += add_seq,
             false => rs.seq_dbd += add_seq,
         };
-        write!(
-            &mut out.seg_file,
-            "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-        )
-        .unwrap();
+            let seg = SegRecord{
+                sample1, sample2, chrname, start_pos, end_pos, ibd, n_snp
+            };
+            out.add_seg(seg);
+        // write!(
+        //     &mut out.seg_file,
+        //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
+        // )
+        // .unwrap();
     }
 
     pub fn tabulate_sites_by_state_for_viterbi_traj(
@@ -533,7 +540,7 @@ impl<'a> HmmRunner<'a> {
         ms: &ModelParamState,
         pair: (usize, usize),
         rs: &RunningStats,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
     ) {
         let sample1 = &self.data.samples.v()[pair.0];
         let sample2 = &self.data.samples.v()[pair.1];
@@ -549,12 +556,27 @@ impl<'a> HmmRunner<'a> {
             rs.count_ibd_fb as f64 / (rs.count_dbd_fb + rs.count_ibd_fb) as f64;
         let count_ibd_vit_ratio =
             rs.count_ibd_vit as f64 / (rs.count_dbd_vit + rs.count_ibd_vit) as f64;
-        use std::io::Write;
-        write!(
-            &mut out.frac_file,
-            "{sample1}\t{sample2}\t{sum}\t{discord:.4}\t{max_phi:0.5e}\t{iter}\t{k_rec:.3}\t{ntrans}\t{seq_ibd_ratio:.5}\t{count_ibd_fb_ratio:.5}\t{count_ibd_vit_ratio:.5}\n"
-        )
-        .unwrap();
+        let frac = FracRecord{
+            sample1,
+            sample2,
+            sum,
+            discord,
+            max_phi,
+            iter,
+            k_rec,
+            ntrans,
+            seq_ibd_ratio,
+            count_ibd_fb_ratio,
+            count_ibd_vit_ratio,
+        };
+        out.add_frac(frac);
+
+        // use std::io::Write;
+        // write!(
+        //     &mut out.frac_file,
+        //     "{sample1}\t{sample2}\t{sum}\t{discord:.4}\t{max_phi:0.5e}\t{iter}\t{k_rec:.3}\t{ntrans}\t{seq_ibd_ratio:.5}\t{count_ibd_fb_ratio:.5}\t{count_ibd_vit_ratio:.5}\n"
+        // )
+        // .unwrap();
     }
 }
 
@@ -604,16 +626,18 @@ impl RunningStats {
 
 #[test]
 fn test_hmm() {
+    use crate::data::OutputFiles;
     use crate::args::Arguments;
     let args = Arguments::new_for_test();
 
-    let mut out = OutputFiles::new_from_args(&args);
+    let out = OutputFiles::new_from_args(&args);
     let input = InputData::from_args(args);
 
     let runner = HmmRunner::new(&input);
 
     for pair in input.pairs.iter().take(2) {
         let pair = (pair.0 as usize, pair.1 as usize);
+        let mut out = OutputBuffer::new(&out, 1, 1);
         runner.run_hmm_on_pair(pair, &mut out);
     }
 }

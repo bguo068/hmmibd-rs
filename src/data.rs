@@ -2,6 +2,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read},
     path::Path,
+    sync::{Arc, Mutex}
 };
 
 use crate::{args::Arguments, genome::*, matrix::*, samples::Samples, sites::Sites};
@@ -324,8 +325,8 @@ impl InputData {
 }
 
 pub struct OutputFiles {
-    pub seg_file: BufWriter<File>,
-    pub frac_file: BufWriter<File>,
+    pub seg_file: Arc<Mutex<BufWriter<File>>>,
+    pub frac_file: Arc<Mutex<BufWriter<File>>>,
 }
 
 impl OutputFiles {
@@ -355,8 +356,8 @@ impl OutputFiles {
         .unwrap();
 
         Self {
-            seg_file,
-            frac_file,
+            seg_file: Arc::new(Mutex::new(seg_file)),
+            frac_file:Arc::new(Mutex::new(frac_file)),
         }
     }
 }
@@ -366,4 +367,107 @@ fn read_inputdata() {
     let mut args = Arguments::new_for_test();
     args.freq_file1 = None;
     let _input = InputData::from_args(args);
+}
+
+
+pub struct FracRecord<'a>{
+    pub sample1: &'a str,
+    pub sample2: &'a str,
+    pub sum: usize,
+    pub discord: f64,
+    pub max_phi: f64,
+    pub iter: usize,
+    pub k_rec: f64,
+    pub ntrans: usize,
+    pub seq_ibd_ratio: f64,
+    pub count_ibd_fb_ratio: f64,
+    pub count_ibd_vit_ratio: f64,
+}
+
+pub struct SegRecord<'a>{
+    pub sample1: &'a str, 
+    pub sample2: &'a str, 
+    pub chrname: &'a str, 
+    pub start_pos: u32, 
+    pub end_pos: u32,
+    pub ibd: u8,
+    pub n_snp: usize,
+}
+
+pub struct OutputBuffer<'a>{
+    seg_file: Arc<Mutex<BufWriter<File>>>,
+    frac_file: Arc<Mutex<BufWriter<File>>>,
+    segs: Vec<SegRecord<'a>>,
+    fracs: Vec<FracRecord<'a>>,
+}
+
+impl<'a> OutputBuffer<'a> {
+    pub fn new(out: &OutputFiles, segs_capacity:usize, fracs_capacity: usize )-> Self{
+        Self{
+            seg_file: Arc::clone(&out.seg_file),
+            frac_file: Arc::clone(&out.frac_file),
+            segs: Vec::with_capacity(segs_capacity),
+            fracs: Vec::with_capacity(fracs_capacity),
+        }
+    }
+
+    pub fn add_seg(&mut self, seg: SegRecord<'a>){
+        if self.segs.len() == self.segs.capacity(){
+            self.flush_segs();
+        }
+        self.segs.push(seg);
+    }
+
+    pub fn add_frac(&mut self, frac: FracRecord<'a>){
+        if self.fracs.len() == self.fracs.len(){
+            self.flush_frac();
+        }
+        self.fracs.push(frac);
+    }
+    
+    pub fn flush_segs(&mut self){
+        use std::io::Write;
+        let mut file = self.seg_file.lock().unwrap();
+        for seg in self.segs.iter(){
+            write!(
+                file,
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    seg.sample1,
+                    seg.sample2,
+                    seg.chrname,
+                    seg.start_pos,
+                    seg.end_pos,
+                    seg.ibd,
+                    seg.n_snp,
+            )
+            .unwrap(); 
+        }
+        self.segs.clear();
+
+    }
+
+    pub fn flush_frac(&mut self){
+        use std::io::Write;
+        let mut file = self.frac_file.lock().unwrap();
+        for frac in self.fracs.iter(){
+            write!(
+                file,
+                "{}\t{}\t{}\t{:.4}\t{:0.5e}\t{}\t{:.3}\t{}\t{:.5}\t{:.5}\t{:.5}\n",
+                frac.sample1,
+                frac.sample2,
+                frac.sum,
+                frac.discord,
+                frac.max_phi,
+                frac.iter,
+                frac.k_rec,
+                frac.ntrans,
+                frac.seq_ibd_ratio,
+                frac.count_ibd_fb_ratio,
+                frac.count_ibd_vit_ratio,
+
+            )
+            .unwrap(); 
+        }
+        self.fracs.clear();
+    }
 }

@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.3.4", features = ["derive", "wrap_help"] }
+rayon = "1.7.0"
 
 [dev-dependencies]
