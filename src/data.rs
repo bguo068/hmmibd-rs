@@ -262,8 +262,8 @@ impl InputData {
             else {
                 let s1 = valid_samples.s1();
                 let n = s1.len();
-                for i in 0..n {
-                    for j in i..n {
+                for i in 0..(n-1) {
+                    for j in (i+1)..n {
                         v.push((s1[i], s1[j]))
                     }
                 }
