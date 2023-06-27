@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser,Args};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -85,9 +85,6 @@ pub struct Arguments {
     #[arg(long, default_value_t = 5)]
     pub min_snp_sep: u32,
 
-    /// recombination rate per generation per basepair
-    #[arg(long, default_value_t = 7.4e-7)]
-    pub rec_rate: f64,
 
     /// covergence criteria: min delta pi
     #[arg(long, default_value_t = 0.001)]
@@ -104,6 +101,9 @@ pub struct Arguments {
     /// max number of unique alleles per site
     #[arg(long, default_value_t = 8)]
     pub max_all: u32,
+
+    #[command(flatten)]
+    pub rec_args: RecombinationArg,
 }
 
 impl Arguments {
@@ -123,11 +123,23 @@ impl Arguments {
             min_discord: 0.0,
             max_discord: 1.0,
             min_snp_sep: 5,
-            rec_rate: 7.4e-7,
+            rec_args: RecombinationArg{rec_rate: 7.4e-7, genome: None},
             fit_thresh_dpi: 0.001,
             fit_thresh_dk: 0.01,
             fit_thresh_drelk: 0.001,
             max_all: 8,
         }
     }
+}
+
+#[derive(Args, Debug)]
+#[group(required=false, multiple=false)]
+pub struct RecombinationArg{
+    /// recombination rate per generation per basepair
+    #[arg(long, default_value_t = 7.4e-7)]
+    pub rec_rate: f64,
+    /// genome file which specifies chromosome size, names, and plink genetic map file paths
+    #[arg(long)]
+    pub genome: Option<PathBuf>,
+
 }

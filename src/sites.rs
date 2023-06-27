@@ -1,7 +1,9 @@
 use crate::genome::Genome;
 use std::ops::Range;
+#[derive(Debug)]
 pub struct Sites {
     /// sorted genome-wide positions
+    gw_pos_cm: Vec<f32>,
     gw_pos: Vec<u32>,
     // ranges of pos for chromosome
     chrom_ranges: Vec<Range<u32>>,
@@ -11,11 +13,13 @@ impl Sites {
     pub fn new() -> Self {
         Self {
             gw_pos: vec![],
+            gw_pos_cm: vec![],
             chrom_ranges: vec![],
         }
     }
-    pub fn add(&mut self, gw_pos: u32) {
+    pub fn add(&mut self, gw_pos: u32, gw_pos_cm: f32) {
         self.gw_pos.push(gw_pos);
+        self.gw_pos_cm.push(gw_pos_cm);
     }
 
     pub fn finish(&mut self, genome: &Genome) {
@@ -51,6 +55,9 @@ impl Sites {
 
     pub fn get_pos_slice(&self) -> &[u32] {
         &self.gw_pos[..]
+    }
+    pub fn get_pos_cm_slice(&self) -> &[f32] {
+        &self.gw_pos_cm[..]
     }
     pub fn get_chrom_pos_idx_ranges(&self, chrid: usize) -> (usize, usize) {
         let r = &self.chrom_ranges[chrid];

@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex}
 };
 
-use crate::{args::Arguments, genome::*, matrix::*, samples::Samples, sites::Sites};
+use crate::{args::Arguments, genome::*, genome2::*, gmap::*, matrix::*, samples::Samples, sites::Sites};
 
 pub struct InputData {
     /// arguments
@@ -28,17 +28,39 @@ pub struct InputData {
 impl InputData {
     pub fn from_args(args: Arguments) -> Self {
         let valid_samples = Samples::from_args(&args);
+        let rec_rate = args.rec_args.rec_rate as f32;
         let min_snp_sep = args.min_snp_sep;
-        let (genome, mut geno1, sites) =
-            Self::read_data_file(&args.data_file1, &valid_samples, min_snp_sep);
+
+       let (genome, mut geno1,geno2, sites) = match args.rec_args.genome.as_ref(){
+            Some(genome_toml_path) => {
+                let ginfo = GenomeInfo::from_toml_file(genome_toml_path);
+                let genome = Genome::from_genome_info(&ginfo);
+                let gmap = GeneticMap::from_genome_info(&ginfo);
+                let (geno1, sites) =
+                    Self::read_data_file_with_ginfo_and_gmap(&args.data_file1, &valid_samples, min_snp_sep, &ginfo,&gmap, &genome);
+                let geno2 = args.data_file2.as_ref().map(|data_file2| {
+                    let (geno2, sites2) =
+                    Self::read_data_file_with_ginfo_and_gmap(data_file2, &valid_samples, min_snp_sep, &ginfo,&gmap, &genome);
+                    assert!(sites.is_identical(&sites2));
+                    geno2
+                });
+                (genome, geno1, geno2, sites)
+            }
+            None => {
+                let (genome, geno1, sites) =
+                    Self::read_data_file(&args.data_file1, &valid_samples, min_snp_sep, rec_rate);
+                let geno2 = args.data_file2.as_ref().map(|data_file2| {
+                    let (genome2, geno2, sites2) =
+                        Self::read_data_file(data_file2, &valid_samples, min_snp_sep, rec_rate);
+                    assert!(genome.is_identical(&genome2));
+                    assert!(sites.is_identical(&sites2));
+                    geno2
+                });
+                (genome, geno1, geno2, sites)
+
+            }
+        };
         let nsam1_valid = geno1.get_ncols();
-        let geno2 = args.data_file2.as_ref().map(|data_file2| {
-            let (genome2, geno2, sites2) =
-                Self::read_data_file(data_file2, &valid_samples, min_snp_sep);
-            assert!(genome.is_identical(&genome2));
-            assert!(sites.is_identical(&sites2));
-            geno2
-        });
         let nsam2_valid = geno2.as_ref().map(|geno2| geno2.get_ncols());
         let freq1 = if let Some(freq_file1) = args.freq_file1.as_ref() {
             Self::read_freq_file(freq_file1, &args, &genome, &sites)
@@ -77,11 +99,87 @@ impl InputData {
             pairs,
         }
     }
+    fn read_data_file_with_ginfo_and_gmap(
+        data_file: impl AsRef<Path>,
+        valid_samples: &Samples,
+        min_snp_sep: u32,
+        ginfo: &GenomeInfo,
+        gmap: &GeneticMap, 
+        genome: &Genome,
+    )->(Matrix<u8>, Sites){
+        let mut sites = Sites::new();
+
+        let mut line = String::with_capacity(100000);
+        let mut f = std::fs::File::open(data_file.as_ref())
+            .map(BufReader::new)
+            .unwrap();
+
+        // get all sample names
+        f.read_line(&mut line).unwrap();
+        let samples: Vec<_> = line
+            .trim()
+            .split('\t')
+            .skip(2)
+            .map(|x| x.to_owned())
+            .collect();
+        line.clear();
+
+        let n_valid_samples = samples
+            .iter()
+            .filter(|s| valid_samples.m().contains_key(*s))
+            .count();
+
+        let mut geno1 = MatrixBuilder::<u8>::new(n_valid_samples);
+        let mut last_chrname = String::new();
+        let mut last_pos = 0;
+        while f.read_line(&mut line).unwrap() != 0 {
+            let mut fields = line.trim().split("\t");
+            let chrname = fields.next().unwrap();
+            let pos: u32 = fields.next().unwrap().parse().unwrap();
+
+            // println!("pos: {pos}, last_pos: {last_pos}");
+            if (chrname == last_chrname) && (last_pos + min_snp_sep > pos) {
+                line.clear();
+                continue;
+            } else {
+                last_chrname.clear();
+                last_chrname.push_str(chrname);
+                last_pos = pos;
+            }
+
+            let chrid = ginfo.idx[chrname];
+            let gw_pos = ginfo.to_gw_pos(chrid, pos);
+            let gw_pos_cm = gmap.get_cm(gw_pos);
+
+            sites.add(gw_pos, gw_pos_cm);
+
+            let mut cnt = 0;
+            fields.enumerate().for_each(|(i, field)| {
+                if valid_samples.m().contains_key(&samples[i]) {
+                    let allel = match field.parse::<i8>().unwrap() {
+                        -1 => None,
+                        x => Some(x as u8),
+                    };
+                    geno1.push(allel);
+                    cnt += 1;
+                }
+            });
+            assert_eq!(cnt, n_valid_samples);
+            line.clear();
+        }
+
+        let geno1 = geno1.finish();
+        sites.finish(&genome);
+
+        (geno1, sites)
+
+    }
 
     fn read_data_file(
         data_file: impl AsRef<Path>,
         valid_samples: &Samples,
         min_snp_sep: u32,
+        rec_rate: f32,
     ) -> (Genome, Matrix<u8>, Sites) {
         let mut sites = Sites::new();
         let mut gbuilder = GenomeBuilder::new();
@@ -126,7 +224,7 @@ impl InputData {
 
             let (_, gw_pos) = gbuilder.encode_pos(chrname, pos);
 
-            sites.add(gw_pos);
+            sites.add(gw_pos, gw_pos as f32 * rec_rate * 100.0);
 
             let mut cnt = 0;
             fields.enumerate().for_each(|(i, field)| {

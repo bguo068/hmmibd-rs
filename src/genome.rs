@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::genome2::GenomeInfo;
+
 pub struct Genome {
     chromnames: Vec<String>,
     // chromsizes: Vec<u32>,
@@ -32,8 +34,15 @@ impl Genome {
     pub fn get_chrname(&self, idx: usize) -> &str {
         &self.chromnames[idx]
     }
+    pub fn from_genome_info(ginfo: &GenomeInfo)->Self{
+        let chromnames = ginfo.chromnames.clone();
+        let gwchrstarts = ginfo.gwstarts.clone();
+        let idx = ginfo.idx.iter().map(|(k,v)|(k.clone(), *v as u32)).collect();
+        Self{chromnames, gwchrstarts, idx}
+    }
 }
 
+/// It is simple gnome builder, useful when no genetic map and genome infor is provided
 pub struct GenomeBuilder {
     // chromsome and its index
     gwchrstarts: Vec<u32>,

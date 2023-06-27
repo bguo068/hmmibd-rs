@@ -8,6 +8,7 @@ fn main() {
 
     let out = OutputFiles::new_from_args(&cli);
     let input = InputData::from_args(cli);
+    // println!("{:?}", &input.sites);
 
     let runner = HmmRunner::new(&input);
 

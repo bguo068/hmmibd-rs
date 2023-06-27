@@ -71,6 +71,11 @@ impl<'a> HmmRunner<'a> {
         cv: &mut PerChrModelVariables,
         out: &mut OutputBuffer<'a>,
     ) {
+        // skip empty chromosomes
+        let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
+        if start_chr == end_chr {
+            return;
+        }
         cv.resize_and_clear(self.data, chrid);
         // iterator over snp forward to calculate
         // - b
@@ -106,7 +111,7 @@ impl<'a> HmmRunner<'a> {
         // rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
     ) {
-        let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
         let geno = &self.data.geno;
         let args = &self.data.args;
@@ -193,7 +198,7 @@ impl<'a> HmmRunner<'a> {
                 cv.scale[0] = 1.0;
             } else {
                 // induction
-                let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp] - pos[isnp - 1]) as f64;
+                let ptrans = ms.model.k_rec * (cm[isnp] - cm[isnp - 1]) as f64 / 100.0;
                 sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
                 sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
                 sv.a[0][0] = 1.0 - sv.a[0][1];
@@ -264,9 +269,8 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         cv: &mut PerChrModelVariables,
     ) {
-        let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let args = &self.data.args;
         let pi = &ms.model.pi;
 
         // Cacluating Beta
@@ -281,7 +285,8 @@ impl<'a> HmmRunner<'a> {
             let snp_ind = isnp - start_chr;
             let mut sv = PerSnpModelVariables::new();
 
-            let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp + 1] - pos[isnp]) as f64;
+            // let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp + 1] - pos[isnp]) as f64;
+            let ptrans = ms.model.k_rec * (cm[isnp+1] - cm[isnp]) as f64 / 100.0;
             sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
             sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
             sv.a[0][0] = 1.0 - sv.a[0][1];
@@ -329,8 +334,8 @@ impl<'a> HmmRunner<'a> {
         cv: &mut PerChrModelVariables,
     ) {
         let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let args = &self.data.args;
         let pi = &ms.model.pi;
         let mut sv = PerSnpModelVariables::new();
 
@@ -348,7 +353,8 @@ impl<'a> HmmRunner<'a> {
             }
 
             let delpos = (pos[isnp + 1] - pos[isnp]) as f64;
-            let ptrans = ms.model.k_rec * args.rec_rate * delpos;
+            // let ptrans = ms.model.k_rec * args.rec_rate * delpos;
+            let ptrans = ms.model.k_rec * (cm[isnp+1] - cm[isnp]) as f64 / 100.0;
 
             sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
             sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
