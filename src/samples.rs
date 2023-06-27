@@ -58,7 +58,7 @@ impl Samples {
                 .unwrap();
             for x in s.trim().split("\t").skip(2) {
                 if !bad_samples.contains(x) {
-                    assert!(m.contains_key(x), "duplicated sample names");
+                    assert!(!m.contains_key(x), "duplicated sample names");
                     m.insert(x.to_owned(), v.len() as u32);
                     s2.push(v.len() as u32);
                     v.push(x.to_owned());
