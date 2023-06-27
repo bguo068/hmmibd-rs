@@ -1,5 +1,5 @@
 use crate::{
-    data::{InputData,SegRecord, FracRecord, OutputBuffer},
+    data::{FracRecord, InputData, OutputBuffer, SegRecord},
     matrix::AsOption,
     model::*,
 };
@@ -10,10 +10,10 @@ pub struct HmmRunner<'a> {
 
 impl<'a> HmmRunner<'a> {
     pub fn new(data: &'a InputData) -> Self {
-        Self { data, }
+        Self { data }
     }
 
-    pub fn run_hmm_on_pair(&self, pair: (usize, usize), out: &mut OutputBuffer<'a> ) {
+    pub fn run_hmm_on_pair(&self, pair: (usize, usize), out: &mut OutputBuffer<'a>) {
         let mut ms = ModelParamState::new(self.data);
         let mut cv = PerChrModelVariables::new();
         let mut rs = RunningStats::new();
@@ -99,7 +99,7 @@ impl<'a> HmmRunner<'a> {
         self.run_over_snp_4_fwd(chrid, ms, rs, cv);
 
         if (ms.iiter == (self.data.args.max_iter - 1) as usize) || ms.finish_fit {
-            self.print_final_viterbi_trajectory(pair, chrid, rs, cv, out);
+            self.print_final_viterbi_trajectory(pair, chrid, rs, cv, out, ms);
             self.tabulate_sites_by_state_for_viterbi_traj(chrid, rs, cv);
         }
     }
@@ -286,7 +286,7 @@ impl<'a> HmmRunner<'a> {
             let mut sv = PerSnpModelVariables::new();
 
             // let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp + 1] - pos[isnp]) as f64;
-            let ptrans = ms.model.k_rec * (cm[isnp+1] - cm[isnp]) as f64 / 100.0;
+            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
             sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
             sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
             sv.a[0][0] = 1.0 - sv.a[0][1];
@@ -354,7 +354,7 @@ impl<'a> HmmRunner<'a> {
 
             let delpos = (pos[isnp + 1] - pos[isnp]) as f64;
             // let ptrans = ms.model.k_rec * args.rec_rate * delpos;
-            let ptrans = ms.model.k_rec * (cm[isnp+1] - cm[isnp]) as f64 / 100.0;
+            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
 
             sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
             sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
@@ -401,11 +401,20 @@ impl<'a> HmmRunner<'a> {
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
         out: &mut OutputBuffer<'a>,
+        ms: &ModelParamState,
     ) {
         if cv.nsites == 0 {
             return;
         }
+        // skip if too old
+        if let Some(max_tmrca) = self.data.args.filt_max_tmrca {
+            let tmrca = ms.model.k_rec as f32;
+            if tmrca > max_tmrca {
+                return;
+            }
+        }
         let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
 
         let chrname = self.data.genome.get_chrname(chrid);
@@ -435,9 +444,27 @@ impl<'a> HmmRunner<'a> {
             let end_pos = pos[start_chr + isnp - 1] - gw_chr_starts;
             let ibd = cv.traj[isnp - 1];
             let n_snp = isnp - start_snp;
-            let seg = SegRecord{
-                sample1, sample2, chrname, start_pos, end_pos, ibd, n_snp
+            let seg = SegRecord {
+                sample1,
+                sample2,
+                chrname,
+                start_pos,
+                end_pos,
+                ibd,
+                n_snp,
             };
+
+            if self.data.args.filt_ibd_only && (ibd == 1) {
+                continue;
+            }
+
+            // skip if too short
+            if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
+                let cm = cm[start_chr + isnp - 1] - cm[start_chr + start_snp];
+                if cm < min_seg_cm {
+                    continue;
+                }
+            }
             out.add_seg(seg);
             // write!(
             //     &mut out.seg_file,
@@ -459,10 +486,27 @@ impl<'a> HmmRunner<'a> {
             true => rs.seq_ibd += add_seq,
             false => rs.seq_dbd += add_seq,
         };
-            let seg = SegRecord{
-                sample1, sample2, chrname, start_pos, end_pos, ibd, n_snp
-            };
-            out.add_seg(seg);
+        if self.data.args.filt_ibd_only && (ibd == 1) {
+            return;
+        }
+
+        // skip if too short
+        if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
+            let cm = cm[end_chr - 1] - cm[start_chr + start_snp];
+            if cm < min_seg_cm {
+                return;
+            }
+        }
+        let seg = SegRecord {
+            sample1,
+            sample2,
+            chrname,
+            start_pos,
+            end_pos,
+            ibd,
+            n_snp,
+        };
+        out.add_seg(seg);
         // write!(
         //     &mut out.seg_file,
         //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
@@ -562,7 +606,7 @@ impl<'a> HmmRunner<'a> {
             rs.count_ibd_fb as f64 / (rs.count_dbd_fb + rs.count_ibd_fb) as f64;
         let count_ibd_vit_ratio =
             rs.count_ibd_vit as f64 / (rs.count_dbd_vit + rs.count_ibd_vit) as f64;
-        let frac = FracRecord{
+        let frac = FracRecord {
             sample1,
             sample2,
             sum,
@@ -632,8 +676,8 @@ impl RunningStats {
 
 #[test]
 fn test_hmm() {
-    use crate::data::OutputFiles;
     use crate::args::Arguments;
+    use crate::data::OutputFiles;
     let args = Arguments::new_for_test();
 
     let out = OutputFiles::new_from_args(&args);
