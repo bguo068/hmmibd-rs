@@ -247,12 +247,12 @@ impl<'a> HmmRunner<'a> {
             //     cv.alpha[0][snp_ind],
             //     cv.alpha[1][snp_ind]);
         }
-        let last_snp = (end_chr - 1) as usize;
+        // let last_snp = (end_chr - 1) as usize;
         let last_snp_indx = (end_chr - start_chr - 1) as usize;
         let mut max_phi_local = cv.phi[1][last_snp_indx];
         let mut max = 1;
         if cv.phi[1][last_snp_indx] < cv.phi[0][last_snp_indx] {
-            max_phi_local = cv.phi[0][last_snp];
+            max_phi_local = cv.phi[0][last_snp_indx];
             max = 0;
         }
         cv.traj[last_snp_indx] = max;
