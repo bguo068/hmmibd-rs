@@ -408,7 +408,7 @@ impl<'a> HmmRunner<'a> {
         }
         // skip if too old
         if let Some(max_tmrca) = self.data.args.filt_max_tmrca {
-            let tmrca = ms.model.k_rec as f32;
+            let tmrca = ms.model.k_rec;
             if tmrca > max_tmrca {
                 return;
             }
@@ -461,7 +461,7 @@ impl<'a> HmmRunner<'a> {
             // skip if too short
             if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
                 let cm = cm[start_chr + isnp - 1] - cm[start_chr + start_snp];
-                if cm < min_seg_cm {
+                if cm < min_seg_cm as f64 {
                     continue;
                 }
             }
@@ -493,7 +493,7 @@ impl<'a> HmmRunner<'a> {
         // skip if too short
         if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
             let cm = cm[end_chr - 1] - cm[start_chr + start_snp];
-            if cm < min_seg_cm {
+            if cm < min_seg_cm as f64 {
                 return;
             }
         }

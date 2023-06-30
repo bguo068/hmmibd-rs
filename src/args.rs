@@ -75,11 +75,11 @@ pub struct Arguments {
 
     /// minimum discordance rate in comparison; set > 0 to skip identical pairs
     #[arg(long, default_value_t = 0.0)]
-    pub min_discord: f32,
+    pub min_discord: f64,
 
     /// maximum discordance rate in comparison; set < 1 to skip unrelated pairs
     #[arg(long, default_value_t = 1.0)]
-    pub max_discord: f32,
+    pub max_discord: f64,
 
     /// skip next snp(s) if too close to last one; in bp
     #[arg(long, default_value_t = 5)]
@@ -107,11 +107,11 @@ pub struct Arguments {
     /// filtering IBD segments: if set, none of IBD/DBD segments short than
     /// filt_min_seg_cm will not be written to hmm.txt files
     #[arg(long)]
-    pub filt_min_seg_cm: Option<f32>,
+    pub filt_min_seg_cm: Option<f64>,
     /// filtering IBD segments: if set, none of IBD/DBD segments from pairs with
     /// k_rec > filt_max_tmrca will not be written to hmm.txt files
     #[arg(long)]
-    pub filt_max_tmrca: Option<f32>,
+    pub filt_max_tmrca: Option<f64>,
     /// filtering IBD segments: if set, no DBD (non-IBD) segments will not be written to hmm.txt files
     #[arg(long)]
     pub filt_ibd_only: bool,
