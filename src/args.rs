@@ -153,7 +153,7 @@ impl Arguments {
 #[group(required = false, multiple = false)]
 pub struct RecombinationArg {
     /// recombination rate per generation per basepair. When used --genome should not be specified.
-    #[arg(long, default_value_t = 7.4e-7)]
+    #[arg(short = 'r', long, default_value_t = 7.4e-7)]
     pub rec_rate: f64,
     /// genome file which specifies chromosome size, names, and plink genetic map file paths.
     ///  When used --rec-rate should not be specified.
