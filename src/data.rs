@@ -455,13 +455,13 @@ impl OutputFiles {
         // write header:
         write!(
             &mut frac_file,
-            "sample1\tsample2\tsum\tdiscord\tmax_phi\titer\tk_rec\tntrans\tseq_ibd_ratio\tcount_ibd_fb_ratio\tcount_ibd_vit_ratio\n"
+            "sample1\tsample2\tN_informative_sites\tdiscordance\tlog_p\tN_fit_iteration\tN_generation\tN_state_transition\tseq_shared_best_traj\tfract_sites_IBD\tfract_vit_sites_IBD\n"
         )
         .unwrap();
 
         write!(
             &mut seg_file,
-            "sample1\tsample2\tchrname\tstart_pos\tend_pos\tibd\tn_snp\n"
+            "sample1\tsample2\tchr\tstart\tend\tdifferent\tNsnp\n"
         )
         .unwrap();
 
