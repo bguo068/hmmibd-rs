@@ -45,6 +45,8 @@
 pub mod args;
 pub mod data;
 pub mod genome;
+pub mod genome2;
+pub mod gmap;
 pub mod hmm;
 pub mod matrix;
 pub mod model;

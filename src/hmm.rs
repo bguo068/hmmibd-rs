@@ -1,5 +1,5 @@
 use crate::{
-    data::{InputData, OutputFiles},
+    data::{FracRecord, InputData, OutputBuffer, SegRecord},
     matrix::AsOption,
     model::*,
 };
@@ -13,7 +13,7 @@ impl<'a> HmmRunner<'a> {
         Self { data }
     }
 
-    pub fn run_hmm_on_pair(&self, pair: (usize, usize), out: &mut OutputFiles) {
+    pub fn run_hmm_on_pair(&self, pair: (usize, usize), out: &mut OutputBuffer<'a>) {
         let mut ms = ModelParamState::new(self.data);
         let mut cv = PerChrModelVariables::new();
         let mut rs = RunningStats::new();
@@ -40,7 +40,7 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
     ) {
         let nchrom = self.data.genome.get_nchrom();
         for chrid in 0..nchrom as usize {
@@ -69,8 +69,13 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
     ) {
+        // skip empty chromosomes
+        let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
+        if start_chr == end_chr {
+            return;
+        }
         cv.resize_and_clear(self.data, chrid);
         // iterator over snp forward to calculate
         // - b
@@ -94,7 +99,7 @@ impl<'a> HmmRunner<'a> {
         self.run_over_snp_4_fwd(chrid, ms, rs, cv);
 
         if (ms.iiter == (self.data.args.max_iter - 1) as usize) || ms.finish_fit {
-            self.print_final_viterbi_trajectory(pair, chrid, rs, cv, out);
+            self.print_final_viterbi_trajectory(pair, chrid, rs, cv, out, ms);
             self.tabulate_sites_by_state_for_viterbi_traj(chrid, rs, cv);
         }
     }
@@ -106,7 +111,7 @@ impl<'a> HmmRunner<'a> {
         // rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
     ) {
-        let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
         let geno = &self.data.geno;
         let args = &self.data.args;
@@ -193,7 +198,7 @@ impl<'a> HmmRunner<'a> {
                 cv.scale[0] = 1.0;
             } else {
                 // induction
-                let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp] - pos[isnp - 1]) as f64;
+                let ptrans = ms.model.k_rec * (cm[isnp] - cm[isnp - 1]) as f64 / 100.0;
                 sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
                 sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
                 sv.a[0][0] = 1.0 - sv.a[0][1];
@@ -242,12 +247,12 @@ impl<'a> HmmRunner<'a> {
             //     cv.alpha[0][snp_ind],
             //     cv.alpha[1][snp_ind]);
         }
-        let last_snp = (end_chr - 1) as usize;
+        // let last_snp = (end_chr - 1) as usize;
         let last_snp_indx = (end_chr - start_chr - 1) as usize;
         let mut max_phi_local = cv.phi[1][last_snp_indx];
         let mut max = 1;
         if cv.phi[1][last_snp_indx] < cv.phi[0][last_snp_indx] {
-            max_phi_local = cv.phi[0][last_snp];
+            max_phi_local = cv.phi[0][last_snp_indx];
             max = 0;
         }
         cv.traj[last_snp_indx] = max;
@@ -264,9 +269,8 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         cv: &mut PerChrModelVariables,
     ) {
-        let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let args = &self.data.args;
         let pi = &ms.model.pi;
 
         // Cacluating Beta
@@ -281,7 +285,8 @@ impl<'a> HmmRunner<'a> {
             let snp_ind = isnp - start_chr;
             let mut sv = PerSnpModelVariables::new();
 
-            let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp + 1] - pos[isnp]) as f64;
+            // let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp + 1] - pos[isnp]) as f64;
+            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
             sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
             sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
             sv.a[0][0] = 1.0 - sv.a[0][1];
@@ -329,8 +334,8 @@ impl<'a> HmmRunner<'a> {
         cv: &mut PerChrModelVariables,
     ) {
         let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let args = &self.data.args;
         let pi = &ms.model.pi;
         let mut sv = PerSnpModelVariables::new();
 
@@ -348,7 +353,8 @@ impl<'a> HmmRunner<'a> {
             }
 
             let delpos = (pos[isnp + 1] - pos[isnp]) as f64;
-            let ptrans = ms.model.k_rec * args.rec_rate * delpos;
+            // let ptrans = ms.model.k_rec * args.rec_rate * delpos;
+            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
 
             sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
             sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
@@ -394,13 +400,21 @@ impl<'a> HmmRunner<'a> {
         chrid: usize,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
+        ms: &ModelParamState,
     ) {
-        use std::io::Write;
         if cv.nsites == 0 {
             return;
         }
+        // skip if too old
+        if let Some(max_tmrca) = self.data.args.filt_max_tmrca {
+            let tmrca = ms.model.k_rec;
+            if tmrca > max_tmrca {
+                return;
+            }
+        }
         let pos = self.data.sites.get_pos_slice();
+        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
 
         let chrname = self.data.genome.get_chrname(chrid);
@@ -430,12 +444,34 @@ impl<'a> HmmRunner<'a> {
             let end_pos = pos[start_chr + isnp - 1] - gw_chr_starts;
             let ibd = cv.traj[isnp - 1];
             let n_snp = isnp - start_snp;
-            write!(
-                &mut out.seg_file,
-                "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-            )
-            .unwrap();
-            // write!(&mut out.seg_file, "{:?}", cv.traj).unwrap();
+            let seg = SegRecord {
+                sample1,
+                sample2,
+                chrname,
+                start_pos,
+                end_pos,
+                ibd,
+                n_snp,
+            };
+
+            if self.data.args.filt_ibd_only && (ibd == 1) {
+                continue;
+            }
+
+            // skip if too short
+            if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
+                let cm = cm[start_chr + isnp - 1] - cm[start_chr + start_snp];
+                if cm < min_seg_cm as f64 {
+                    continue;
+                }
+            }
+            out.add_seg(seg);
+            // write!(
+            //     &mut out.seg_file,
+            //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
+            // )
+            // .unwrap();
+            // // write!(&mut out.seg_file, "{:?}", cv.traj).unwrap();
 
             start_snp = isnp;
         }
@@ -450,11 +486,32 @@ impl<'a> HmmRunner<'a> {
             true => rs.seq_ibd += add_seq,
             false => rs.seq_dbd += add_seq,
         };
-        write!(
-            &mut out.seg_file,
-            "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-        )
-        .unwrap();
+        if self.data.args.filt_ibd_only && (ibd == 1) {
+            return;
+        }
+
+        // skip if too short
+        if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
+            let cm = cm[end_chr - 1] - cm[start_chr + start_snp];
+            if cm < min_seg_cm as f64 {
+                return;
+            }
+        }
+        let seg = SegRecord {
+            sample1,
+            sample2,
+            chrname,
+            start_pos,
+            end_pos,
+            ibd,
+            n_snp,
+        };
+        out.add_seg(seg);
+        // write!(
+        //     &mut out.seg_file,
+        //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
+        // )
+        // .unwrap();
     }
 
     pub fn tabulate_sites_by_state_for_viterbi_traj(
@@ -533,7 +590,7 @@ impl<'a> HmmRunner<'a> {
         ms: &ModelParamState,
         pair: (usize, usize),
         rs: &RunningStats,
-        out: &mut OutputFiles,
+        out: &mut OutputBuffer<'a>,
     ) {
         let sample1 = &self.data.samples.v()[pair.0];
         let sample2 = &self.data.samples.v()[pair.1];
@@ -549,12 +606,27 @@ impl<'a> HmmRunner<'a> {
             rs.count_ibd_fb as f64 / (rs.count_dbd_fb + rs.count_ibd_fb) as f64;
         let count_ibd_vit_ratio =
             rs.count_ibd_vit as f64 / (rs.count_dbd_vit + rs.count_ibd_vit) as f64;
-        use std::io::Write;
-        write!(
-            &mut out.frac_file,
-            "{sample1}\t{sample2}\t{sum}\t{discord:.4}\t{max_phi:0.5e}\t{iter}\t{k_rec:.3}\t{ntrans}\t{seq_ibd_ratio:.5}\t{count_ibd_fb_ratio:.5}\t{count_ibd_vit_ratio:.5}\n"
-        )
-        .unwrap();
+        let frac = FracRecord {
+            sample1,
+            sample2,
+            sum,
+            discord,
+            max_phi,
+            iter,
+            k_rec,
+            ntrans,
+            seq_ibd_ratio,
+            count_ibd_fb_ratio,
+            count_ibd_vit_ratio,
+        };
+        out.add_frac(frac);
+
+        // use std::io::Write;
+        // write!(
+        //     &mut out.frac_file,
+        //     "{sample1}\t{sample2}\t{sum}\t{discord:.4}\t{max_phi:0.5e}\t{iter}\t{k_rec:.3}\t{ntrans}\t{seq_ibd_ratio:.5}\t{count_ibd_fb_ratio:.5}\t{count_ibd_vit_ratio:.5}\n"
+        // )
+        // .unwrap();
     }
 }
 
@@ -605,15 +677,17 @@ impl RunningStats {
 #[test]
 fn test_hmm() {
     use crate::args::Arguments;
+    use crate::data::OutputFiles;
     let args = Arguments::new_for_test();
 
-    let mut out = OutputFiles::new_from_args(&args);
+    let out = OutputFiles::new_from_args(&args);
     let input = InputData::from_args(args);
 
     let runner = HmmRunner::new(&input);
 
     for pair in input.pairs.iter().take(2) {
         let pair = (pair.0 as usize, pair.1 as usize);
+        let mut out = OutputBuffer::new(&out, 1, 1);
         runner.run_hmm_on_pair(pair, &mut out);
     }
 }

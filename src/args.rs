@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Args, Parser};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
@@ -75,19 +75,15 @@ pub struct Arguments {
 
     /// minimum discordance rate in comparison; set > 0 to skip identical pairs
     #[arg(long, default_value_t = 0.0)]
-    pub min_discord: f32,
+    pub min_discord: f64,
 
     /// maximum discordance rate in comparison; set < 1 to skip unrelated pairs
     #[arg(long, default_value_t = 1.0)]
-    pub max_discord: f32,
+    pub max_discord: f64,
 
     /// skip next snp(s) if too close to last one; in bp
     #[arg(long, default_value_t = 5)]
     pub min_snp_sep: u32,
-
-    /// recombination rate per generation per basepair
-    #[arg(long, default_value_t = 7.4e-7)]
-    pub rec_rate: f64,
 
     /// covergence criteria: min delta pi
     #[arg(long, default_value_t = 0.001)]
@@ -104,6 +100,21 @@ pub struct Arguments {
     /// max number of unique alleles per site
     #[arg(long, default_value_t = 8)]
     pub max_all: u32,
+
+    #[command(flatten)]
+    pub rec_args: RecombinationArg,
+
+    /// filtering IBD segments: if set, none of IBD/DBD segments short than
+    /// filt_min_seg_cm will not be written to hmm.txt files
+    #[arg(long)]
+    pub filt_min_seg_cm: Option<f64>,
+    /// filtering IBD segments: if set, none of IBD/DBD segments from pairs with
+    /// k_rec > filt_max_tmrca will not be written to hmm.txt files
+    #[arg(long)]
+    pub filt_max_tmrca: Option<f64>,
+    /// filtering IBD segments: if set, no DBD (non-IBD) segments will not be written to hmm.txt files
+    #[arg(long)]
+    pub filt_ibd_only: bool,
 }
 
 impl Arguments {
@@ -123,11 +134,29 @@ impl Arguments {
             min_discord: 0.0,
             max_discord: 1.0,
             min_snp_sep: 5,
-            rec_rate: 7.4e-7,
+            rec_args: RecombinationArg {
+                rec_rate: 7.4e-7,
+                genome: None,
+            },
             fit_thresh_dpi: 0.001,
             fit_thresh_dk: 0.01,
             fit_thresh_drelk: 0.001,
             max_all: 8,
+            filt_min_seg_cm: None,
+            filt_max_tmrca: None,
+            filt_ibd_only: false,
         }
     }
+}
+
+#[derive(Args, Debug)]
+#[group(required = false, multiple = false)]
+pub struct RecombinationArg {
+    /// recombination rate per generation per basepair. When used --genome should not be specified.
+    #[arg(short = 'r', long, default_value_t = 7.4e-7)]
+    pub rec_rate: f64,
+    /// genome file which specifies chromosome size, names, and plink genetic map file paths.
+    ///  When used --rec-rate should not be specified.
+    #[arg(long)]
+    pub genome: Option<PathBuf>,
 }
