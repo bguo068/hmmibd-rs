@@ -45,3 +45,7 @@ time ./hmmibd2 -i gt.txt -f frq.txt -r 6.66667e-7 -o new --max-all 2 > /dev/null
 diff <(sed 1d new.hmm.txt | sort ) <(sed 1d orig.hmm.txt | sort ) > diff.txt
 if [ `cat diff.txt | wc -l`  -eq 0 ] ; then echo pass sim_data full; 
 else echo failed sim_data full ; fi
+
+time ./hmmibd2 -i ../sim_data/gt_chr1.txt -r 6.66667e-7 -o chr1 --max-all 2 > /dev/null # 4.5 min
+time ./hmmibd2 -i ../sim_data/gt_chr2.txt -r 6.66667e-7 -o chr2 --max-all 2 > /dev/null # 4.5 min
+time ./hmmibd2 -i ../sim_data/gt_chr3.txt -r 6.66667e-7 -o chr3 --max-all 2 > /dev/null # 4.5 min
