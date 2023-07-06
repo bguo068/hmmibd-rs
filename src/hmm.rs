@@ -455,6 +455,7 @@ impl<'a> HmmRunner<'a> {
             };
 
             if self.data.args.filt_ibd_only && (ibd == 1) {
+                start_snp = isnp;
                 continue;
             }
 
@@ -462,6 +463,7 @@ impl<'a> HmmRunner<'a> {
             if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
                 let cm = cm[start_chr + isnp - 1] - cm[start_chr + start_snp];
                 if cm < min_seg_cm as f64 {
+                    start_snp = isnp;
                     continue;
                 }
             }
