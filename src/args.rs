@@ -115,6 +115,14 @@ pub struct Arguments {
     /// filtering IBD segments: if set, no DBD (non-IBD) segments will not be written to hmm.txt files
     #[arg(long)]
     pub filt_ibd_only: bool,
+
+    /// number of threads. 0 : use all cpus; non-zero: use the given numbers of threads
+    #[arg(long, default_value_t = 0)]
+    pub num_threads: usize,
+
+    /// number of pairs of samples per chunk for parallelization
+    #[arg(long, default_value_t = 120)]
+    pub par_chunk_size: usize,
 }
 
 impl Arguments {
@@ -145,6 +153,8 @@ impl Arguments {
             filt_min_seg_cm: None,
             filt_max_tmrca: None,
             filt_ibd_only: false,
+            num_threads: 1,
+            par_chunk_size: 120,
         }
     }
 }
