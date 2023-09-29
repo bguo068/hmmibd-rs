@@ -2,6 +2,7 @@ use clap::{Args, Parser};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
+#[command(author, version, about, long_about, name = "hmmibd2")]
 pub struct Arguments {
     /// File of genotype data.
     /// Format for genotype file: tab-delimited text file, with one single
