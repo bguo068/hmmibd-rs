@@ -126,6 +126,15 @@ Options:
       --filt-ibd-only
           filtering IBD segments: if set, no DBD (non-IBD) segments
           will not be written to hmm.txt files
+      --num-threads <NUM_THREADS>
+          number of threads. 0 : use all cpus; non-zero: use the given 
+          numbers of threads [default: 0]
+      --par-chunk-size <PAR_CHUNK_SIZE>
+          number of pairs of samples per chunk for parallelization 
+          [default: 120]
+      --par-mode <PAR_MODE>
+          par_mode: 0, chunks of sample pairs; 1, pairs of chunks 
+          [default: 0]
   -h, --help
           Print help
 ```
