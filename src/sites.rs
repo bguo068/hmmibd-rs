@@ -1,6 +1,7 @@
 use crate::genome::Genome;
 use std::ops::Range;
-#[derive(Debug)]
+
+#[derive(Debug, Clone)]
 pub struct Sites {
     /// sorted genome-wide positions
     gw_pos_cm: Vec<f64>,

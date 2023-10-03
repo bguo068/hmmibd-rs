@@ -1,7 +1,6 @@
 use clap::{Args, Parser};
-use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about, name = "hmmibd2")]
 pub struct Arguments {
     /// File of genotype data.
@@ -15,11 +14,11 @@ pub struct Arguments {
     /// have between two and eight alleles (more, if you feel like changing
     /// max_allele).
     #[arg(short = 'i', long, required = true)]
-    pub data_file1: PathBuf,
+    pub data_file1: String,
 
     /// Optional: file of genotype data from a second population
     #[arg(short = 'I', long)]
-    pub data_file2: Option<PathBuf>,
+    pub data_file2: Option<String>,
 
     ///  Optional: File of allele frequencies for the sample population. Format:
     ///  tab-delimited, no header, one variant per row. Line format: <chromosome
@@ -28,12 +27,12 @@ pub struct Arguments {
     ///  variants, in the same order. If no file is supplied, allele frequencies
     ///  are calculated from the input data file.
     #[arg(short = 'f', long)]
-    pub freq_file1: Option<PathBuf>,
+    pub freq_file1: Option<String>,
 
     ///  Optional: File of allele frequencies for the second population; same format as
     ///  for -f
     #[arg(short = 'F', long)]
-    pub freq_file2: Option<PathBuf>,
+    pub freq_file2: Option<String>,
 
     /// Optional: Maximum number of fit iterations
     #[arg(short = 'm', long, default_value = "5")]
@@ -42,14 +41,14 @@ pub struct Arguments {
     /// Optional: file of sample ids to exclude from all analysis. Format: no header, one
     /// id (string) per row. Note: b stands for "bad samples"
     #[arg(short = 'b', long)]
-    pub bad_file: Option<PathBuf>,
+    pub bad_file: Option<String>,
 
     ///  Optional: File of sample pairs to analyze; all others are not processed by the HMM
     ///  (but are still used to calculate allele frequencies). Format: no header,
     ///  tab-delimited, two sample ids (strings) per row. Note: "g" stands for
     ///  "good pairs".
     #[arg(short = 'g', long)]
-    pub good_file: Option<PathBuf>,
+    pub good_file: Option<String>,
 
     ///  Optional: Cap on the number of generations (floating point). Sets the maximum
     ///  value for that parameter in the fit. This is useful if you are
@@ -63,7 +62,7 @@ pub struct Arguments {
 
     /// output put prefix, if not specified use the prefix as `-i` option.
     #[arg(short = 'o', long)]
-    pub output: Option<PathBuf>,
+    pub output: Option<String>,
 
     /// error rate in genotype calls
     #[arg(long, default_value_t = 0.001)]
@@ -123,16 +122,20 @@ pub struct Arguments {
 
     /// number of pairs of samples per chunk for parallelization
     #[arg(long, default_value_t = 120)]
-    pub par_chunk_size: usize,
+    pub par_chunk_size: u32,
+
+    /// par_mode: 0, chunks of sample pairs; 1, pairs of chunks.
+    #[arg(long, default_value_t = 0)]
+    pub par_mode: u8,
 }
 
 impl Arguments {
     pub fn new_for_test() -> Self {
         Self {
-            data_file1: PathBuf::from("samp_data/pf3k_Cambodia_13.txt"),
-            data_file2: Some(PathBuf::from("samp_data/pf3k_Ghana_13.txt")),
-            freq_file1: Some(PathBuf::from("samp_data/freqs_pf3k_Cambodia_13.txt")),
-            freq_file2: Some(PathBuf::from("samp_data/freqs_pf3k_Ghana_13.txt")),
+            data_file1: String::from("samp_data/pf3k_Cambodia_13.txt"),
+            data_file2: Some(String::from("samp_data/pf3k_Ghana_13.txt")),
+            freq_file1: Some(String::from("samp_data/freqs_pf3k_Cambodia_13.txt")),
+            freq_file2: Some(String::from("samp_data/freqs_pf3k_Ghana_13.txt")),
             max_iter: 5,
             bad_file: None,
             good_file: None,
@@ -156,11 +159,12 @@ impl Arguments {
             filt_ibd_only: false,
             num_threads: 1,
             par_chunk_size: 120,
+            par_mode: 0,
         }
     }
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 #[group(required = false, multiple = false)]
 pub struct RecombinationArg {
     /// recombination rate per generation per basepair. When used --genome should not be specified.
@@ -169,5 +173,5 @@ pub struct RecombinationArg {
     /// genome file which specifies chromosome size, names, and plink genetic map file paths.
     ///  When used --rec-rate should not be specified.
     #[arg(long)]
-    pub genome: Option<PathBuf>,
+    pub genome: Option<String>,
 }

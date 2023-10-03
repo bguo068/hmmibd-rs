@@ -28,7 +28,140 @@ pub struct InputData {
 }
 
 impl InputData {
-    pub fn from_args(args: Arguments) -> Self {
+    /// The first element of return value is always a chunk index in the samples in pop1
+    /// The 2nd element of return value is a chunk index that can be in pop1 or pop2.
+    /// the chunk index for pop2 is always no less than max chunk index of pop1 which can be used
+    /// to determine which population the chunk is from
+    pub fn get_chunk_pairs(&self) -> Vec<(u32, u32)> {
+        let mut chunk_pairs = vec![];
+        let mut num_chunk1 = self.samples.pop1_nsam() / self.args.par_chunk_size;
+        if self.samples.pop1_nsam() % self.args.par_chunk_size > 0 {
+            num_chunk1 += 1;
+        }
+        if self.freq2.is_some() {
+            // two different populations
+            assert!(self.samples.pop2_nsam() > 0);
+            let mut num_chunk2 = self.samples.pop2_nsam() / self.args.par_chunk_size;
+            if self.samples.pop2_nsam() % self.args.par_chunk_size > 0 {
+                num_chunk2 += 1;
+            }
+            for i in 0..num_chunk1 {
+                for j in 0..num_chunk2 {
+                    let j = num_chunk1 + j;
+                    chunk_pairs.push((i as u32, j as u32));
+                }
+            }
+        } else {
+            // same population
+            for i in 0..num_chunk1 {
+                for j in i..num_chunk1 {
+                    chunk_pairs.push((i as u32, j as u32));
+                }
+            }
+        }
+        chunk_pairs
+    }
+
+    pub fn clone_inputdata_for_chunkpair(&self, chunkpair: (u32, u32)) -> Self {
+        let (ichunk, jchunk) = chunkpair;
+
+        // num of chunks for samples.s1()
+        let num_chunk1 = {
+            let a = self.samples.pop1_nsam();
+            let b = self.args.par_chunk_size;
+            let mut c = a / b;
+            let d = a % b;
+            if d > 0 {
+                c += 1;
+            }
+            c
+        };
+
+        // chunk1 start,end rows/samples, len
+        let (ichunk_start, ichunk_end, ichunk_len) = {
+            let ichunk_start = ichunk * self.args.par_chunk_size;
+            let mut ichunk_end = (1 + ichunk) * self.args.par_chunk_size;
+            if ichunk_end > self.samples.pop1_nsam() {
+                ichunk_end = self.samples.pop1_nsam();
+            }
+            let ichunk_len = ichunk_end - ichunk_start;
+            (ichunk_start, ichunk_end, ichunk_len)
+        };
+
+        // chunk2  start, end rows/samples, len
+        let (jchunk_start, jchunk_end, jchunk_len) = {
+            if jchunk < num_chunk1 {
+                let jchunk_start = jchunk * self.args.par_chunk_size;
+                let mut jchunk_end = (1 + jchunk) * self.args.par_chunk_size;
+                if jchunk_end > self.samples.pop1_nsam() {
+                    jchunk_end = self.samples.pop1_nsam();
+                }
+                let jchunk_len = jchunk_end - jchunk_start;
+                (jchunk_start, jchunk_end, jchunk_len)
+            } else {
+                assert!(self.samples.pop2_nsam() > 0);
+                let jjchunk = jchunk - num_chunk1;
+                let jchunk_start = self.samples.pop1_nsam() + jjchunk * self.args.par_chunk_size;
+                let mut jchunk_end =
+                    self.samples.pop1_nsam() + (1 + jjchunk) * self.args.par_chunk_size;
+                if jchunk_end > self.samples.pop1_nsam() + self.samples.pop2_nsam() {
+                    jchunk_end = self.samples.pop1_nsam() + self.samples.pop2_nsam();
+                }
+                (jchunk_start, jchunk_end, jchunk_end - jchunk_start)
+            }
+        };
+        let nsites = self.geno.get_ncols();
+
+        let args = self.args.clone();
+        let nall = self.nall.clone();
+        let majall = self.majall.clone();
+        let freq1 = self.freq1.clone();
+        let geno = {
+            let mut nrows = ichunk_len as usize;
+            let ncols = nsites;
+            let mut s = ichunk_start as usize * nsites;
+            let mut e = ichunk_end as usize * nsites;
+            let mut data = self.geno.as_slice()[s..e].to_vec();
+            if ichunk != jchunk {
+                s = jchunk_start as usize * nsites;
+                e = jchunk_end as usize * nsites;
+                data.extend_from_slice(&self.geno.as_slice()[s..e]);
+                nrows += jchunk_len as usize;
+            }
+            Matrix::<u8>::from_shape_vec(nrows, ncols, data)
+        };
+        let freq2 = match (ichunk == jchunk, jchunk < num_chunk1) {
+            (true, _) => None,
+            (false, true) => Some(self.freq1.clone()),
+            (false, false) => self.freq2.clone(),
+        };
+        let samples = {
+            let pop1_slice = &self.samples.v()[(ichunk_start as usize)..(ichunk_end as usize)];
+            if ichunk == jchunk {
+                Samples::from_slice(pop1_slice, &[])
+            } else {
+                let pop2_slice = &self.samples.v()[(jchunk_start as usize)..(jchunk_end as usize)];
+                Samples::from_slice(pop1_slice, pop2_slice)
+            }
+        };
+        let sites = self.sites.clone();
+        let genome = self.genome.clone();
+        let pairs = Self::get_valid_pair_file(&args, &samples);
+        Self {
+            args,
+            geno,
+            nall,
+            majall,
+            freq1,
+            freq2,
+            sites,
+            genome,
+            samples,
+            pairs,
+        }
+    }
+
+    pub fn from_args(args: &Arguments) -> Self {
         let valid_samples = Samples::from_args(&args);
         let rec_rate = args.rec_args.rec_rate;
         let min_snp_sep = args.min_snp_sep;
@@ -100,7 +233,7 @@ impl InputData {
         }
 
         Self {
-            args,
+            args: args.clone(),
             geno: geno1,
             nall,
             majall,
@@ -361,20 +494,20 @@ impl InputData {
             }
         } else {
             // two populatoin
-            if valid_samples.s2().len() > 0 {
-                for i in valid_samples.s1().iter() {
-                    for j in valid_samples.s2().iter() {
-                        v.push((*i, *j))
+            if valid_samples.pop2_nsam() > 0 {
+                for i in 0..valid_samples.pop1_nsam() {
+                    for j in 0..valid_samples.pop2_nsam() {
+                        v.push((i, j))
                     }
                 }
             }
             // one population
             else {
-                let s1 = valid_samples.s1();
-                let n = s1.len();
+                let s1 = valid_samples.v();
+                let n = s1.len() as u32;
                 for i in 0..(n - 1) {
                     for j in (i + 1)..n {
-                        v.push((s1[i], s1[j]))
+                        v.push((i, j))
                     }
                 }
             }
@@ -442,8 +575,8 @@ pub struct OutputFiles {
 impl OutputFiles {
     pub fn new_from_args(args: &Arguments) -> Self {
         let prefix = match args.output.as_ref() {
-            Some(output) => output.as_os_str().to_str().unwrap(),
-            None => args.data_file1.as_os_str().to_str().unwrap(),
+            Some(output) => output,
+            None => &args.data_file1,
         };
         let seg_fn = format!("{prefix}.hmm.txt");
         let frac_fn = format!("{prefix}.hmm_fract.txt");
@@ -476,7 +609,7 @@ impl OutputFiles {
 fn read_inputdata() {
     let mut args = Arguments::new_for_test();
     args.freq_file1 = None;
-    let _input = InputData::from_args(args);
+    let _input = InputData::from_args(&args);
 }
 
 pub struct FracRecord<'a> {

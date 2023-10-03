@@ -683,7 +683,7 @@ fn test_hmm() {
     let args = Arguments::new_for_test();
 
     let out = OutputFiles::new_from_args(&args);
-    let input = InputData::from_args(args);
+    let input = InputData::from_args(&args);
 
     let runner = HmmRunner::new(&input);
 

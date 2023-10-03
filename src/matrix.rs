@@ -78,6 +78,7 @@ impl AsOption for f64 {
     }
 }
 
+#[derive(Clone)]
 pub struct Matrix<T>
 where
     T: Copy + Default + AsOption + PartialOrd,
@@ -91,8 +92,15 @@ impl<T> Matrix<T>
 where
     T: Copy + Default + AsOption + PartialOrd,
 {
+    pub fn as_slice(&self) -> &[T] {
+        &self.data[..]
+    }
+
     pub fn from_shape(nrows: usize, ncols: usize, init_val: T) -> Self {
         let data = vec![init_val; nrows * ncols];
+        Self { data, ncols, nrows }
+    }
+    pub fn from_shape_vec(nrows: usize, ncols: usize, data: Vec<T>) -> Self {
         Self { data, ncols, nrows }
     }
 
