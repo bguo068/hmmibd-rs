@@ -573,7 +573,11 @@ pub struct OutputFiles {
 }
 
 impl OutputFiles {
-    pub fn new_from_args(args: &Arguments) -> Self {
+    pub fn new_from_args(
+        args: &Arguments,
+        buffer_size_segments: Option<usize>,
+        buffer_size_frac: Option<usize>,
+    ) -> Self {
         let prefix = match args.output.as_ref() {
             Some(output) => output,
             None => &args.data_file1,
@@ -582,8 +586,19 @@ impl OutputFiles {
         let frac_fn = format!("{prefix}.hmm_fract.txt");
         use std::io::Write;
 
-        let mut seg_file = std::fs::File::create(&seg_fn).map(BufWriter::new).unwrap();
-        let mut frac_file = std::fs::File::create(&frac_fn).map(BufWriter::new).unwrap();
+        let mut seg_file = match buffer_size_segments {
+            Some(bfsz) => std::fs::File::create(&seg_fn)
+                .map(|seg_fn| BufWriter::with_capacity(bfsz, seg_fn))
+                .unwrap(),
+            None => std::fs::File::create(&seg_fn).map(BufWriter::new).unwrap(),
+        };
+
+        let mut frac_file = match buffer_size_frac {
+            Some(bfsz) => std::fs::File::create(&frac_fn)
+                .map(|frac_fn| BufWriter::with_capacity(bfsz, frac_fn))
+                .unwrap(),
+            None => std::fs::File::create(&seg_fn).map(BufWriter::new).unwrap(),
+        };
 
         // write header:
         write!(

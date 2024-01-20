@@ -13,7 +13,12 @@ impl<'a> HmmRunner<'a> {
         Self { data }
     }
 
-    pub fn run_hmm_on_pair(&self, pair: (usize, usize), out: &mut OutputBuffer<'a>) {
+    pub fn run_hmm_on_pair(
+        &self,
+        pair: (usize, usize),
+        out: &mut OutputBuffer<'a>,
+        suppress_frac: bool,
+    ) {
         let mut ms = ModelParamState::new(self.data);
         let mut cv = PerChrModelVariables::new();
         let mut rs = RunningStats::new();
@@ -29,6 +34,9 @@ impl<'a> HmmRunner<'a> {
             }
             // - update ms and finish_fit
             self.update_model(&rs, &mut ms);
+        }
+        if suppress_frac {
+            return;
         }
         // print fraction of allele IBD for a given pair
         self.print_hmm_frac(&mut ms, pair, &mut rs, out);
@@ -690,6 +698,6 @@ fn test_hmm() {
     for pair in input.pairs.iter().take(2) {
         let pair = (pair.0 as usize, pair.1 as usize);
         let mut out = OutputBuffer::new(&out, 1, 1);
-        runner.run_hmm_on_pair(pair, &mut out);
+        runner.run_hmm_on_pair(pair, &mut out, false);
     }
 }

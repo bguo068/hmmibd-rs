@@ -1,14 +1,18 @@
 use clap::Parser;
 use hmmibd_rs::args::Arguments;
-use hmmibd_rs::data::{InputData, OutputBuffer, OutputFiles};
+use hmmibd_rs::data::{FracRecord, InputData, OutputBuffer, OutputFiles, SegRecord};
 use hmmibd_rs::hmm::HmmRunner;
 use rayon::prelude::*;
+use std::mem::size_of;
 fn main() {
     let cli = Arguments::parse();
     let num_threads = cli.num_threads;
     let par_chunk_size = cli.par_chunk_size;
+    let suppress_frac = cli.suppress_frac;
+    let buffer_size_segments = cli.buffer_size_segments;
+    let buffer_size_frac = cli.buffer_size_frac;
 
-    let out = OutputFiles::new_from_args(&cli);
+    let out = OutputFiles::new_from_args(&cli, buffer_size_segments, buffer_size_frac);
     let input = InputData::from_args(&cli);
     // println!("{:?}", &input.sites);
     eprintln!("{:?}", &input.args);
@@ -31,8 +35,12 @@ fn main() {
                 .for_each(|chunk| {
                     for pair in chunk.iter() {
                         let pair = (pair.0 as usize, pair.1 as usize);
-                        let mut out = OutputBuffer::new(&out, 1000000, 10000);
-                        runner.run_hmm_on_pair(pair, &mut out);
+                        let mut out = OutputBuffer::new(
+                            &out,
+                            100 * size_of::<SegRecord>(),
+                            1 * size_of::<FracRecord>(),
+                        );
+                        runner.run_hmm_on_pair(pair, &mut out, suppress_frac);
                         out.flush_frac();
                         out.flush_segs();
                         // println!("finish pair: {:4}, {:4}", pair.0, pair.1);
@@ -48,12 +56,16 @@ fn main() {
 
         pool.install(|| {
             chunk_pairs.par_iter().for_each(|chunkpair| {
-                let mut out = OutputBuffer::new(&out, 1000000, 10000);
+                let mut out = OutputBuffer::new(
+                    &out,
+                    100 * size_of::<SegRecord>(),
+                    1 * size_of::<FracRecord>(),
+                );
                 let chunkpair_input = input.clone_inputdata_for_chunkpair(*chunkpair);
                 let runner = HmmRunner::new(&chunkpair_input);
                 for pair in chunkpair_input.pairs.iter() {
                     let pair = (pair.0 as usize, pair.1 as usize);
-                    runner.run_hmm_on_pair(pair, &mut out);
+                    runner.run_hmm_on_pair(pair, &mut out, suppress_frac);
                 }
 
                 out.flush_frac();
