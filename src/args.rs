@@ -159,13 +159,8 @@ impl Arguments {
             k_rec_max: f64::MAX,
             output: None,
             suppress_frac: false,
-<<<<<<< HEAD
             buffer_size_segments: Some(1000000),
             buffer_size_frac: Some(10000),
-=======
-            buffer_size_segments: 1000000,
-            buffer_size_frac: 1000000,
->>>>>>> f41cd8651fbcc2a409d75e29920c5368def96057
             eps: 0.001,
             min_inform: 10,
             min_discord: 0.0,
