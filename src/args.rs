@@ -64,6 +64,19 @@ pub struct Arguments {
     #[arg(short = 'o', long)]
     pub output: Option<String>,
 
+    /// output buffer size for IBD segments
+    #[arg(long, default_value_t = 1000000)]
+    pub buffer_size_segments: usize,
+
+    /// output buffer size for IBD fraction records
+    #[arg(long, default_value_t = 10000)]
+    pub buffer_size_frac: usize,
+
+    /// whether suppress frac output. Toggle this on for minimal IO burden when
+    /// only IBD segment output is needed
+    #[arg(long, default_value_t = false)]
+    pub suppress_frac: bool,
+
     /// error rate in genotype calls
     #[arg(long, default_value_t = 0.001)]
     pub eps: f64,
@@ -141,6 +154,9 @@ impl Arguments {
             good_file: None,
             k_rec_max: f64::MAX,
             output: None,
+            suppress_frac: false,
+            buffer_size_segments: 1000000,
+            buffer_size_frac: 1000000,
             eps: 0.001,
             min_inform: 10,
             min_discord: 0.0,
