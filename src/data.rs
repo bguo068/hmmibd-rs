@@ -1,3 +1,4 @@
+use smallvec::SmallVec;
 use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read},
@@ -654,8 +655,8 @@ pub struct SegRecord<'a> {
 pub struct OutputBuffer<'a> {
     seg_file: Arc<Mutex<BufWriter<File>>>,
     frac_file: Arc<Mutex<BufWriter<File>>>,
-    segs: Vec<SegRecord<'a>>,
-    fracs: Vec<FracRecord<'a>>,
+    segs: SmallVec<[SegRecord<'a>; 5]>,
+    fracs: SmallVec<[FracRecord<'a>; 1]>,
 }
 
 impl<'a> OutputBuffer<'a> {
@@ -663,8 +664,8 @@ impl<'a> OutputBuffer<'a> {
         Self {
             seg_file: Arc::clone(&out.seg_file),
             frac_file: Arc::clone(&out.frac_file),
-            segs: Vec::with_capacity(segs_capacity),
-            fracs: Vec::with_capacity(fracs_capacity),
+            segs: SmallVec::<[SegRecord<'a>; 5]>::with_capacity(segs_capacity),
+            fracs: SmallVec::<[FracRecord<'a>; 1]>::with_capacity(fracs_capacity),
         }
     }
 

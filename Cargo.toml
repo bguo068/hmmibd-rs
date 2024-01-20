@@ -10,6 +10,7 @@ clap = { version = "4.3.4", features = ["derive", "wrap_help"] }
 csv = "1.2.2"
 rayon = "1.7.0"
 serde = { version = "1.0.164", features = ["derive"] }
+smallvec = "1.13.1"
 toml = "0.7.5"
 
 [dev-dependencies]
