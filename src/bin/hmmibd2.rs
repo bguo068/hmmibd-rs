@@ -55,13 +55,11 @@ fn main() {
                 let max_npairs = par_chunk_size as usize * par_chunk_size as usize - 1;
                 let mut outbuffer = OutputBuffer::new(&outfiles, 10 * max_npairs, max_npairs);
                 let pairs = &chunkpair_input.pairs;
-                {
-                    let runner = HmmRunner::new(&chunkpair_input);
+                let runner = HmmRunner::new(&chunkpair_input);
 
-                    for pair in pairs.iter() {
-                        let pair = (pair.0 as usize, pair.1 as usize);
-                        runner.run_hmm_on_pair(pair, &mut outbuffer, suppress_frac);
-                    }
+                for pair in pairs.iter() {
+                    let pair = (pair.0 as usize, pair.1 as usize);
+                    runner.run_hmm_on_pair(pair, &mut outbuffer, suppress_frac);
                 }
 
                 outbuffer.flush_frac();
