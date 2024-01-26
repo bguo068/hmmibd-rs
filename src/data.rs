@@ -598,7 +598,7 @@ impl OutputFiles {
             Some(bfsz) => std::fs::File::create(&frac_fn)
                 .map(|frac_fn| BufWriter::with_capacity(bfsz, frac_fn))
                 .unwrap(),
-            None => std::fs::File::create(&seg_fn).map(BufWriter::new).unwrap(),
+            None => std::fs::File::create(&frac_fn).map(BufWriter::new).unwrap(),
         };
 
         // write header:

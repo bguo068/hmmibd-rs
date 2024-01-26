@@ -690,7 +690,7 @@ fn test_hmm() {
     use crate::data::OutputFiles;
     let args = Arguments::new_for_test();
 
-    let out = OutputFiles::new_from_args(&args);
+    let out = OutputFiles::new_from_args(&args, None, None);
     let input = InputData::from_args(&args);
 
     let runner = HmmRunner::new(&input);
