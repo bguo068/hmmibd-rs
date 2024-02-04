@@ -276,24 +276,15 @@ impl<'a> HmmRunner<'a> {
             cv.beta[1][t] = sum[1] / cv.scale[t];
         }
     }
+    /// backtracking (finding traj/q sequence)
     pub fn run_over_snp_3_back(&self, chrid: usize, cv: &mut PerChrModelVariables) {
-        // backtracking
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        // let pos = self.data.sites.get_pos_slice();
-        // let gw_chr_start = self.data.genome.get_gwchrstarts()[chrid];
+        let nsites = end_chr - start_chr;
 
-        let last_snp = end_chr - start_chr - 1;
-        let mut max = cv.traj[last_snp] as usize;
-        // println!("last_snp max: {}", max);
-        for isnp in (start_chr..end_chr).rev().skip(1) {
-            let snp_ind = isnp - start_chr;
-            cv.traj[snp_ind] = cv.psi[max][snp_ind + 1];
-            max = cv.traj[snp_ind] as usize;
-            // println!(
-            //     "snp_ind={snp_ind}\tpos={}\ttraj={}",
-            //     pos[isnp] - gw_chr_start,
-            //     cv.traj[snp_ind]
-            // )
+        let mut max = cv.traj[nsites - 1] as usize;
+        for t in (0..nsites - 1).rev() {
+            cv.traj[t] = cv.psi[max][t + 1];
+            max = cv.traj[t] as usize;
         }
     }
 
