@@ -242,46 +242,38 @@ impl<'a> HmmRunner<'a> {
         cv.traj[nsites - 1] = max;
         ms.model.max_phi += max_phi_local;
     }
+
+    /// Cacluating Beta
     pub fn run_over_snp_2_back(
         &self,
         chrid: usize,
-        ms: &mut ModelParamState,
+        ms: &ModelParamState,
         cv: &mut PerChrModelVariables,
     ) {
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
+        let cm = &self.data.sites.get_pos_cm_slice()[start_chr..end_chr];
         let pi = &ms.model.pi;
-
-        // Cacluating Beta
-        ///////////////////////////////////////
+        let nsites = end_chr - start_chr;
 
         // init beta
-        let last = end_chr - start_chr - 1;
-        cv.beta[0][last] = 1.0;
-        cv.beta[1][last] = 1.0;
+        cv.beta[0][nsites - 1] = 1.0;
+        cv.beta[1][nsites - 1] = 1.0;
         // induction
-        for isnp in (start_chr..end_chr).rev().skip(1) {
-            let snp_ind = isnp - start_chr;
+        for t in (0..nsites - 1).rev() {
             let mut sv = PerSnpModelVariables::new();
 
-            // let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp + 1] - pos[isnp]) as f64;
-            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
-            sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
-            sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
+            let ptrans = ms.model.k_rec * (cm[t + 1] - cm[t]) as f64 / 100.0;
+            sv.a[0][1] = pi[1] - pi[1] * (-ptrans).exp();
+            sv.a[1][0] = pi[0] - pi[0] * (-ptrans).exp();
             sv.a[0][0] = 1.0 - sv.a[0][1];
             sv.a[1][1] = 1.0 - sv.a[1][0];
 
             let mut sum = [0.0, 0.0];
-            for (is, js) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
-                sum[is] += cv.beta[js][snp_ind + 1] * sv.a[is][js] * cv.b[js][snp_ind + 1];
+            for (i_i, i_o) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                sum[i_i] += cv.beta[i_o][t + 1] * sv.a[i_i][i_o] * cv.b[i_o][t + 1];
             }
-            cv.beta[0][snp_ind] = sum[0] / cv.scale[snp_ind];
-            cv.beta[1][snp_ind] = sum[1] / cv.scale[snp_ind];
-
-            // println!(
-            //     "snp_ind={snp_ind}\tpos={}\tbeta0={:.4}\tbeta1={:.4}",
-            //     pos[isnp], cv.beta[0][snp_ind], cv.beta[1][snp_ind]
-            // )
+            cv.beta[0][t] = sum[0] / cv.scale[t];
+            cv.beta[1][t] = sum[1] / cv.scale[t];
         }
     }
     pub fn run_over_snp_3_back(&self, chrid: usize, cv: &mut PerChrModelVariables) {
