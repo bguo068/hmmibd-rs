@@ -661,15 +661,19 @@ fn test_hmm() {
     use crate::data::OutputFiles;
     let args = Arguments::new_for_test();
 
-    let out = OutputFiles::new_from_args(&args, None, None);
     let input = InputData::from_args(&args);
 
     let runner = HmmRunner::new(&input);
 
-    for pair in input.pairs.iter().take(2) {
-        let pair = (pair.0 as usize, pair.1 as usize);
-        let mut out = OutputBuffer::new(&out, 1, 1);
-        runner.run_hmm_on_pair(pair, &mut out, false);
+    {
+        let out = OutputFiles::new_from_args(&args, None, None);
+        for pair in input.pairs.iter() {
+            let pair = (pair.0 as usize, pair.1 as usize);
+            let mut out = OutputBuffer::new(&out, 1, 1);
+            runner.run_hmm_on_pair(pair, &mut out, false);
+            out.flush_frac();
+            out.flush_segs();
+        }
     }
 
     // run hmmibd
@@ -795,11 +799,11 @@ fn test_hmm() {
 
         let sample_name_map = input.samples.m();
 
-        assert_ne!(
+        assert_eq!(
             load_data_from_hmm_seg_res("tmp_hmmibdrs.hmm.txt", sample_name_map),
             load_data_from_hmm_seg_res("tmp_hmmibd.hmm.txt", sample_name_map)
         );
-        assert_ne!(
+        assert_eq!(
             load_data_from_hmm_frac_res("tmp_hmmibdrs.hmm.txt", sample_name_map),
             load_data_from_hmm_frac_res("tmp_hmmibd.hmm.txt", sample_name_map)
         );
