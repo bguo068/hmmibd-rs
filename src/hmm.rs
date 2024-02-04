@@ -350,98 +350,85 @@ impl<'a> HmmRunner<'a> {
         out: &mut OutputBuffer<'a>,
         ms: &ModelParamState,
     ) {
+        // if no useful sites, no segment generated
         if cv.nsites == 0 {
             return;
         }
         // skip if too old
         if let Some(max_tmrca) = self.data.args.filt_max_tmrca {
-            let tmrca = ms.model.k_rec;
-            if tmrca > max_tmrca {
+            if ms.model.k_rec > max_tmrca {
                 return;
             }
         }
-        let pos = self.data.sites.get_pos_slice();
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
+        let pos = &self.data.sites.get_pos_slice()[start_chr..end_chr];
+        let cm = &self.data.sites.get_pos_cm_slice()[start_chr..end_chr];
+        let nsites = end_chr - start_chr;
 
         let chrname = self.data.genome.get_chrname(chrid);
         let sample1 = &self.data.samples.v()[pair.0];
         let sample2 = &self.data.samples.v()[pair.1];
-        let gw_chr_starts = self.data.genome.get_gwchrstarts()[chrid];
+        let gw_chr_start_bp = self.data.genome.get_gwchrstarts()[chrid];
 
-        let mut start_snp = 0;
+        let mut t_seg_start = 0;
         let mut add_seq;
         //
         //      |-----|==========|-------|===========|
         //          start       -1 \isnp
-        for (isnp, ipos) in (start_chr..end_chr).enumerate().skip(1) {
-            if cv.traj[isnp] == cv.traj[isnp - 1] {
+        for t in 1..nsites {
+            if cv.traj[t] == cv.traj[t - 1] {
                 continue;
             }
-
             rs.ntrans += 1;
 
-            add_seq = (pos[ipos - 1] - pos[start_chr + start_snp] + 1) as f64;
-            match cv.traj[isnp - 1] == 0 {
+            add_seq = (pos[t - 1] - pos[t_seg_start] + 1) as f64;
+            match cv.traj[t - 1] == 0 {
                 true => rs.seq_ibd += add_seq,
                 false => rs.seq_dbd += add_seq,
             };
             // print
-            let start_pos = pos[start_chr + start_snp] - gw_chr_starts;
-            let end_pos = pos[start_chr + isnp - 1] - gw_chr_starts;
-            let ibd = cv.traj[isnp - 1];
-            let n_snp = isnp - start_snp;
+            let ibd = cv.traj[t - 1];
             let seg = SegRecord {
                 sample1,
                 sample2,
                 chrname,
-                start_pos,
-                end_pos,
+                start_pos: pos[t_seg_start] - gw_chr_start_bp,
+                end_pos: pos[t - 1] - gw_chr_start_bp,
                 ibd,
-                n_snp,
+                n_snp: t - t_seg_start,
             };
 
             if self.data.args.filt_ibd_only && (ibd == 1) {
-                start_snp = isnp;
+                t_seg_start = t;
                 continue;
             }
 
             // skip if too short
             if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
-                let cm = cm[start_chr + isnp - 1] - cm[start_chr + start_snp];
+                let cm = cm[t - 1] - cm[t_seg_start];
                 if cm < min_seg_cm as f64 {
-                    start_snp = isnp;
+                    t_seg_start = t;
                     continue;
                 }
             }
             out.add_seg(seg);
-            // write!(
-            //     &mut out.seg_file,
-            //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-            // )
-            // .unwrap();
-            // // write!(&mut out.seg_file, "{:?}", cv.traj).unwrap();
-
-            start_snp = isnp;
+            t_seg_start = t;
         }
-        //
-        let isnp = end_chr - start_chr - 1;
-        let start_pos = pos[start_chr + start_snp] - gw_chr_starts;
-        let end_pos = pos[end_chr - 1] - gw_chr_starts;
-        add_seq = (end_pos - start_pos + 1) as f64;
-        let ibd = cv.traj[isnp];
-        let n_snp = isnp - start_snp + 1;
+        // Process the "hanging" segments
+        add_seq = (nsites + 1) as f64;
+        let ibd = cv.traj[nsites - 1];
         match ibd == 0 {
             true => rs.seq_ibd += add_seq,
             false => rs.seq_dbd += add_seq,
         };
+
+        // if output IBD only and segment is not IBD
         if self.data.args.filt_ibd_only && (ibd == 1) {
             return;
         }
-
         // skip if too short
         if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
-            let cm = cm[end_chr - 1] - cm[start_chr + start_snp];
+            let cm = cm[nsites - 1] - cm[t_seg_start];
             if cm < min_seg_cm as f64 {
                 return;
             }
@@ -450,17 +437,12 @@ impl<'a> HmmRunner<'a> {
             sample1,
             sample2,
             chrname,
-            start_pos,
-            end_pos,
+            start_pos: pos[t_seg_start] - gw_chr_start_bp,
+            end_pos: pos[nsites - 1] - gw_chr_start_bp,
             ibd,
-            n_snp,
+            n_snp: nsites - 1 - t_seg_start + 1,
         };
         out.add_seg(seg);
-        // write!(
-        //     &mut out.seg_file,
-        //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-        // )
-        // .unwrap();
     }
 
     pub fn tabulate_sites_by_state_for_viterbi_traj(
