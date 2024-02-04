@@ -116,55 +116,58 @@ impl<'a> HmmRunner<'a> {
         pair: (usize, usize),
         chrid: usize,
         ms: &mut ModelParamState,
-        // rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
     ) {
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let geno = &self.data.geno;
+        let geno_x = &self.data.geno[pair.0][start_chr..end_chr];
+        let geno_y = &self.data.geno[pair.1][start_chr..end_chr];
         let args = &self.data.args;
-        let freq1 = &self.data.freq1;
-        let freq2 = match self.data.freq2.as_ref() {
+        let freq1_all = &self.data.freq1;
+        let freq2_all = match self.data.freq2.as_ref() {
             Some(freq2) => freq2,
-            None => freq1,
+            None => freq1_all,
         };
+        let freq1 = freq1_all.get_row_chunk_view(start_chr, end_chr);
+        let freq2 = freq2_all.get_row_chunk_view(start_chr, end_chr);
         let pi = &ms.model.pi;
-        let nall = &self.data.nall;
+        let nall = &self.data.nall[start_chr..end_chr];
+        let majall = &self.data.majall[start_chr..end_chr];
+        let cm = &self.data.sites.get_pos_cm_slice()[start_chr..end_chr];
+        let nsites = end_chr - start_chr;
 
-        for isnp in start_chr..end_chr {
-            let snp_ind = (isnp - start_chr) as usize;
-            let isnp = isnp as usize;
-            let g_x = geno[pair.0][isnp];
-            let g_y = geno[pair.1][isnp];
+        for t in 0..nsites {
+            let g_xt = geno_x[t];
+            let g_yt = geno_y[t];
             let eps = args.eps;
             let mut sv = PerSnpModelVariables::new();
 
             // get num of informative sites
-            if (ms.iiter == 0) && (g_x.is_some()) && (g_y.is_some()) {
-                // println!("self.data.majall={:?}", &self.data.majall);
-                if (g_x == g_y) && (g_y == self.data.majall[isnp]) {
+            if (ms.iiter == 0) && (g_xt.is_some()) && (g_yt.is_some()) {
+                if (g_xt == g_yt) && (g_yt == majall[t]) {
                 } else {
                     ms.num_info_site += 1;
                 }
-                if g_x != g_y {
+                if g_xt != g_yt {
                     ms.num_discord += 1;
                 }
             }
 
             // update b for a given sites (full loop will update whole chromosome)
-            let pright = 1.0 - eps * (nall[isnp] - 1) as f64;
-            let (b0t, b1t) = if (g_x == u8::MAX) || (g_y == u8::MAX) {
+            let pright = 1.0 - eps * (nall[t] - 1) as f64;
+            let (b0t, b1t) = if (g_xt == u8::MAX) || (g_yt == u8::MAX) {
                 // missing
                 (1.0, 1.0)
             } else {
-                let f1_x = freq1[isnp][g_x as usize].as_option().unwrap() as f64;
-                let f1_y = freq1[isnp][g_y as usize].as_option().unwrap() as f64;
-                let f2_x = freq2[isnp][g_x as usize].as_option().unwrap() as f64;
-                let f2_y = freq2[isnp][g_y as usize].as_option().unwrap() as f64;
-                if g_x == g_y {
+                let g_xt = g_xt as usize;
+                let g_yt = g_yt as usize;
+                let f1_x = freq1[t][g_xt].as_option().unwrap();
+                let f1_y = freq1[t][g_yt].as_option().unwrap();
+                let f2_x = freq2[t][g_xt].as_option().unwrap();
+                let f2_y = freq2[t][g_yt].as_option().unwrap();
+                if g_xt == g_yt {
                     // concordant genotype
                     cv.nsites += 1;
-                    let fmean = ((f1_x + f2_y) / 2.0) as f64;
+                    let fmean = (f1_x + f2_y) / 2.0;
                     let b0t = pright * pright * fmean + eps * eps * (1.0 - fmean);
                     let b1t = pright * pright * f1_x * f2_y
                         + pright * eps * f1_x * (1.0 - f2_y)
@@ -184,92 +187,60 @@ impl<'a> HmmRunner<'a> {
                     (b0t, b1t)
                 }
             };
-            cv.b[0][snp_ind] = b0t;
-            cv.b[1][snp_ind] = b1t;
-
-            // println!("snp_ind={snp_ind}\tpos={}\tb[0]={b0t:.5}\tb[1]={b1t:.5}\tgi={gi}\tgj={gj}\tpright={pright}\t{}", pos[isnp],nall[snp_ind]);
-
-            // println!("++++++++++++++++++ snp_ind={snp_ind}");
+            cv.b[0][t] = b0t;
+            cv.b[1][t] = b1t;
 
             // calcuate alpha, delta(phi) and psi
-            if snp_ind == 0 {
+            if t == 0 {
                 // initiation
-                cv.psi[0][snp_ind] = 0;
-                cv.psi[1][snp_ind] = 0;
-                cv.phi[0][snp_ind] = pi[0].ln() + b0t.ln();
-                cv.phi[1][snp_ind] = pi[1].ln() + b1t.ln();
-                cv.alpha[0][snp_ind] = pi[0] * b0t;
-                cv.alpha[1][snp_ind] = pi[1] * b1t;
-                // assert!(cv.alpha[0][snp_ind].gt(&0.0));
-                // assert!(cv.alpha[1][snp_ind].gt(&0.0));
-                // TODO: scalre value is very confusing
+                cv.psi[0][t] = 0;
+                cv.psi[1][t] = 0;
+                cv.phi[0][t] = pi[0].ln() + b0t.ln();
+                cv.phi[1][t] = pi[1].ln() + b1t.ln();
+                cv.alpha[0][t] = pi[0] * b0t;
+                cv.alpha[1][t] = pi[1] * b1t;
+                // Scale init
                 cv.scale[0] = 1.0;
             } else {
                 // induction
-                let ptrans = ms.model.k_rec * (cm[isnp] - cm[isnp - 1]) as f64 / 100.0;
+                let ptrans = ms.model.k_rec * (cm[t] - cm[t - 1]) as f64 / 100.0;
                 sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
                 sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
                 sv.a[0][0] = 1.0 - sv.a[0][1];
                 sv.a[1][1] = 1.0 - sv.a[1][0];
 
-                for js in 0..2 {
+                for i_o in 0..2 {
                     let mut max_val = f64::MIN;
-                    let mut alpha_jt = 0.0;
+                    let mut alpha_it = 0.0;
 
-                    // TODO: scalre value is very confusing, should move it out of for js in 0..2 loop
-                    cv.scale[snp_ind] = 0.0;
-                    for is in 0..2 {
-                        let score = cv.phi[is][snp_ind - 1] + sv.a[is][js].ln();
+                    cv.scale[t] = 0.0;
+                    for i_i in 0..2 {
+                        let score = cv.phi[i_i][t - 1] + sv.a[i_i][i_o].ln();
                         if score > max_val {
                             max_val = score;
-                            cv.psi[js][snp_ind] = is as u8;
+                            cv.psi[i_o][t] = i_i as u8;
                         }
-                        cv.phi[js][snp_ind] = max_val + cv.b[js][snp_ind].ln();
-                        alpha_jt += cv.alpha[is][snp_ind - 1] * sv.a[is][js] * cv.b[js][snp_ind];
-                        // println!(
-                        //     "chrid={chrid}, isnp={isnp} snp_ind={snp_ind} js={js} is={is} alpha={} a={} b={} ",
-                        //     cv.alpha[is][snp_ind - 1],
-                        //     sv.a[is][js],
-                        //     cv.b[js][snp_ind],
-                        // );
+                        cv.phi[i_o][t] = max_val + cv.b[i_o][t].ln();
+                        alpha_it += cv.alpha[i_i][t - 1] * sv.a[i_i][i_o] * cv.b[i_o][t];
                     }
-                    cv.alpha[js][snp_ind] = alpha_jt;
-
-                    // TODO: scalre value is very confusing
-                    cv.scale[snp_ind] += cv.alpha[js][snp_ind];
+                    cv.alpha[i_o][t] = alpha_it;
+                    // Scale addup
+                    cv.scale[t] += cv.alpha[i_o][t];
                 }
                 // scaling
-                // println!("scale: {} ", cv.scale[snp_ind]);
-                for js in 0..2 {
-                    // assert!(cv.scale[snp_ind] > 0.0);
-                    cv.alpha[js][snp_ind] = cv.alpha[js][snp_ind] / cv.scale[snp_ind];
+                for i in 0..2 {
+                    cv.alpha[i][t] = cv.alpha[i][t] / cv.scale[t];
                 }
             }
-
-            // println!("snp_ind={snp_ind}\tpos={}\tpsi0={:.4}\tpsi1={:.4}\tphi0={:.4}\tphi1={:.4}\talpha0={:.4}\talpha1={:.4}",
-            //     pos[isnp],
-            //     cv.psi[0][snp_ind],
-            //     cv.psi[1][snp_ind],
-            //     cv.phi[0][snp_ind],
-            //     cv.phi[1][snp_ind],
-            //     cv.alpha[0][snp_ind],
-            //     cv.alpha[1][snp_ind]);
         }
-        // let last_snp = (end_chr - 1) as usize;
-        let last_snp_indx = (end_chr - start_chr - 1) as usize;
-        let mut max_phi_local = cv.phi[1][last_snp_indx];
+        let mut max_phi_local = cv.phi[1][nsites - 1];
         let mut max = 1;
-        if cv.phi[1][last_snp_indx] < cv.phi[0][last_snp_indx] {
-            max_phi_local = cv.phi[0][last_snp_indx];
+        if cv.phi[1][nsites - 1] < cv.phi[0][nsites - 1] {
+            max_phi_local = cv.phi[0][nsites - 1];
             max = 0;
         }
-        cv.traj[last_snp_indx] = max;
+        cv.traj[nsites - 1] = max;
         ms.model.max_phi += max_phi_local;
-
-        // println!(
-        //     "last_snp={last_snp_indx}\tmax={max}\tmax_phi{}",
-        //     ms.model.max_phi
-        // );
     }
     pub fn run_over_snp_2_back(
         &self,
