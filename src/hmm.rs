@@ -53,20 +53,6 @@ impl<'a> HmmRunner<'a> {
         let nchrom = self.data.genome.get_nchrom();
         for chrid in 0..nchrom as usize {
             self.run_over_single_chromsome(pair, chrid, ms, rs, cv, out);
-            // if (chrid > 0) || (ms.iiter > 0) {
-            //     continue;
-            // }
-            //     println!(
-            //         "iter: {}, chrid {}: \ntraj: {:?}, \nalpha: {:?}, \nbeta: {:?}, \nb={:?} \nphi={:?} \npsi={:?}",
-            //         ms.iiter,
-            //         chrid,
-            //         &cv.traj[0..4],
-            //         &cv.alpha.get_row_raw_slice(0)[0..6],
-            //         &cv.beta.get_row_raw_slice(0)[0..6],
-            //         &cv.b.get_row_raw_slice(0)[0..6],
-            //         &cv.phi.get_row_raw_slice(0)[0..6],
-            //         &cv.psi.get_row_raw_slice(0)[0..6],
-            //     );
         }
     }
 
