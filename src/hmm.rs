@@ -451,11 +451,10 @@ impl<'a> HmmRunner<'a> {
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
     ) {
-        // let pos = self.data.sites.get_pos_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
 
-        for (isnp, _) in (start_chr..end_chr).enumerate() {
-            match cv.traj[isnp] == 0 {
+        for (t, _) in (start_chr..end_chr).enumerate() {
+            match cv.traj[t] == 0 {
                 true => rs.count_ibd_vit += 1,
                 false => rs.count_dbd_vit += 1,
             }
@@ -472,11 +471,8 @@ impl<'a> HmmRunner<'a> {
         // reestimate parameters
         pi[0] = rs.count_ibd_fb / (rs.count_ibd_fb + rs.count_dbd_fb);
         ms.model.k_rec *= rs.trans_obs / rs.trans_pred;
-        // println!(
-        //     "trans_obs={:0.5}, trans_pred={:.5}",
-        //     rs.trans_obs, rs.trans_pred,
-        // );
-        // assert!(!ms.model.k_rec.is_nan());
+
+        // cap k_rec
         if ms.model.k_rec > self.data.args.k_rec_max {
             ms.model.k_rec = self.data.args.k_rec_max;
         }
@@ -493,13 +489,11 @@ impl<'a> HmmRunner<'a> {
                 ms.model.k_rec = 1e-5;
             }
         }
-
         pi[1] = 1.0 - pi[0];
 
         // calculate delta
         let delpi = pi[0] - ms.last_model.pi[0];
         let delk = ms.model.k_rec - ms.last_model.k_rec;
-        // let delprob = ms.model.max_phi - ms.last_model.max_phi;
         let delrelk = delk / ms.model.k_rec;
 
         // update last model
@@ -511,10 +505,6 @@ impl<'a> HmmRunner<'a> {
         {
             ms.finish_fit = true;
         }
-        // println!(
-        //     "iter={}\tk_rec={:.4}\tpi=[0]={:.4}\tmax_phi={:.4}\tfinish_fit={}\tcount_ibd_fb={:.3}\tcount_dbd_fb={:.3}\ttrans_obs={:.3}\ttrans_pred={:.3}",
-        //     ms.iiter, ms.model.k_rec, ms.model.pi[0], ms.model.max_phi, ms.finish_fit, rs.count_ibd_fb, rs.count_dbd_fb, rs.trans_obs, rs.trans_pred
-        // );
     }
     pub fn print_hmm_frac(
         &self,
@@ -551,13 +541,6 @@ impl<'a> HmmRunner<'a> {
             count_ibd_vit_ratio,
         };
         out.add_frac(frac);
-
-        // use std::io::Write;
-        // write!(
-        //     &mut out.frac_file,
-        //     "{sample1}\t{sample2}\t{sum}\t{discord:.4}\t{max_phi:0.5e}\t{iter}\t{k_rec:.3}\t{ntrans}\t{seq_ibd_ratio:.5}\t{count_ibd_fb_ratio:.5}\t{count_ibd_vit_ratio:.5}\n"
-        // )
-        // .unwrap();
     }
 }
 
