@@ -291,45 +291,41 @@ impl<'a> HmmRunner<'a> {
     pub fn run_over_snp_4_fwd(
         &self,
         chrid: usize,
-        ms: &mut ModelParamState,
+        ms: &ModelParamState,
         rs: &mut RunningStats,
-        cv: &mut PerChrModelVariables,
+        cv: &PerChrModelVariables,
     ) {
-        let pos = self.data.sites.get_pos_slice();
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
+        let pos = &self.data.sites.get_pos_slice()[start_chr..end_chr];
+        let cm = &self.data.sites.get_pos_cm_slice()[start_chr..end_chr];
+        let nsites = end_chr - start_chr;
         let pi = &ms.model.pi;
         let mut sv = PerSnpModelVariables::new();
 
-        for (snp_ind, isnp) in (start_chr..end_chr).enumerate() {
-            let mut p_ibd = cv.alpha[0][snp_ind] * cv.beta[0][snp_ind];
-            let p_dbd = cv.alpha[1][snp_ind] * cv.beta[1][snp_ind];
+        for t in 0..nsites {
+            let mut p_ibd = cv.alpha[0][t] * cv.beta[0][t];
+            let p_dbd = cv.alpha[1][t] * cv.beta[1][t];
             p_ibd = p_ibd / (p_ibd + p_dbd);
 
             rs.count_ibd_fb += p_ibd;
             rs.count_dbd_fb += 1.0 - p_ibd;
 
             // not the last snp for following code
-            if snp_ind == end_chr - start_chr - 1 {
+            if t == nsites - 1 {
                 break;
             }
 
-            let delpos = (pos[isnp + 1] - pos[isnp]) as f64;
-            // let ptrans = ms.model.k_rec * args.rec_rate * delpos;
-            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
-
-            sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
-            sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
+            let ptrans = ms.model.k_rec * (cm[t + 1] - cm[t]) as f64 / 100.0;
+            sv.a[0][1] = pi[1] - pi[1] * (-ptrans).exp();
+            sv.a[1][0] = pi[0] - pi[0] * (-ptrans).exp();
             sv.a[0][0] = 1.0 - sv.a[0][1];
             sv.a[1][1] = 1.0 - sv.a[1][0];
 
             let mut xisum = 0.0;
-            for (is, js) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
-                sv.xi[is][js] = cv.alpha[is][snp_ind]
-                    * sv.a[is][js]
-                    * cv.b[js][snp_ind + 1]
-                    * cv.beta[js][snp_ind + 1];
-                xisum += sv.xi[is][js];
+            for (i_i, i_o) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                sv.xi[i_i][i_o] =
+                    cv.alpha[i_i][t] * sv.a[i_i][i_o] * cv.b[i_o][t + 1] * cv.beta[i_o][t + 1];
+                xisum += sv.xi[i_i][i_o];
             }
             for (is, js) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
                 sv.xi[is][js] /= xisum;
@@ -337,18 +333,7 @@ impl<'a> HmmRunner<'a> {
             sv.gamma[0] = sv.xi[0][1] + sv.xi[0][0];
             sv.gamma[1] = sv.xi[1][1] + sv.xi[1][0];
 
-            // println!("snp_ind={snp_ind}\tpos={}\tdelpos={delpos:.0}\txi={:.3},{:.3},{:.3},{:.3}\tgamma={:.3},{:.3}\ta01/10={:.6},{:.6}",
-            //     pos[isnp] - self.data.genome.get_gwchrstarts()[chrid],
-            //     sv.xi[0][0],
-            //     sv.xi[0][1],
-            //     sv.xi[1][0],
-            //     sv.xi[1][1],
-            //     sv.gamma[0],
-            //     sv.gamma[1],
-            //     sv.a[0][1],
-            //     sv.a[1][0],
-            // );
-
+            let delpos = (pos[t + 1] - pos[t]) as f64;
             rs.seq_ibd_fb += delpos * sv.xi[0][0];
             rs.seq_dbd_fb += delpos * sv.xi[1][1];
             rs.trans_obs += sv.xi[0][1] + sv.xi[1][0];
