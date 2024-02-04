@@ -496,7 +496,7 @@ impl InputData {
             // two populatoin
             if valid_samples.pop2_nsam() > 0 {
                 for i in 0..valid_samples.pop1_nsam() {
-                    for j in 0..valid_samples.pop2_nsam() {
+                    for j in valid_samples.pop1_nsam()..valid_samples.v().len() as u32 {
                         v.push((i, j))
                     }
                 }
