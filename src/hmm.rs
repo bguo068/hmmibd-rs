@@ -700,4 +700,137 @@ fn test_hmm() {
         let mut out = OutputBuffer::new(&out, 1, 1);
         runner.run_hmm_on_pair(pair, &mut out, false);
     }
+
+    // run hmmibd
+    use std::process::{Command, Stdio};
+    if !std::path::Path::new("hmmIBD").exists() {
+        if !std::path::Path::new("hmmIBD.c").exists() {
+            eprintln!("./hmmIBD or ./hmmIBD.c can be found in current folder");
+            std::process::exit(-1);
+        }
+        Command::new("gcc")
+            .args(["hmmIBD.c", "-lm", "-O2", "-o", "hmmIBD"])
+            .status()
+            .unwrap();
+    }
+    Command::new("./hmmIBD")
+        .args([
+            "-i",
+            "samp_data/pf3k_Cambodia_13.txt",
+            "-I",
+            "samp_data/pf3k_Ghana_13.txt",
+            "-f",
+            "samp_data/freqs_pf3k_Cambodia_13.txt",
+            "-F",
+            "samp_data/freqs_pf3k_Ghana_13.txt",
+            "-o",
+            "tmp_hmmibd",
+        ])
+        .stdout(Stdio::null())
+        .status()
+        .unwrap();
+
+    // load data from hmmibd-rs results
+    {
+        use std::collections::HashMap;
+        #[derive(Default, Eq, PartialEq, PartialOrd, Ord, Debug)]
+        struct Seg {
+            sample1: u32,
+            sample2: u32,
+            chr: u32,
+            start: u32,
+            end: u32,
+            different: u32,
+            nsnp: u32,
+        }
+        fn load_data_from_hmm_seg_res(
+            path: &str,
+            sample_name_map: &HashMap<String, u32>,
+        ) -> Vec<Seg> {
+            let mut res = vec![];
+            for line in std::fs::read_to_string(path)
+                .unwrap()
+                .trim()
+                .split("\n")
+                .skip(1)
+            {
+                let mut seg = Seg::default();
+                for (ifield, field) in line.split("\t").enumerate() {
+                    match ifield {
+                        0 => seg.sample1 = sample_name_map[field],
+                        1 => seg.sample2 = sample_name_map[field],
+                        2 => seg.chr = field.parse::<u32>().unwrap(),
+                        3 => seg.start = field.parse::<u32>().unwrap(),
+                        4 => seg.end = field.parse::<u32>().unwrap(),
+                        5 => seg.different = field.parse::<u32>().unwrap(),
+                        6 => seg.nsnp = field.parse::<u32>().unwrap(),
+                        _ => {}
+                    }
+                }
+                res.push(seg);
+                res.sort();
+            }
+            res
+        }
+
+        #[derive(Default, PartialEq, PartialOrd, Debug)]
+        struct Frac {
+            pub sample1: u32,
+            pub sample2: u32,
+            pub num_info_sites: u32,
+            pub discord: f64,
+            pub max_phi: f64,
+            pub iter: u32,
+            pub k_rec: f64,
+            pub ntrans: u32,
+            pub seq_ibd_ratio: f64,
+            pub count_ibd_fb_ratio: f64,
+            pub count_ibd_vit_ratio: f64,
+        }
+
+        fn load_data_from_hmm_frac_res(
+            path: &str,
+            sample_name_map: &HashMap<String, u32>,
+        ) -> Vec<Frac> {
+            let mut res = vec![];
+            for line in std::fs::read_to_string(path)
+                .unwrap()
+                .trim()
+                .split("\n")
+                .skip(1)
+            {
+                let mut frac = Frac::default();
+                for (ifield, field) in line.split("\t").enumerate() {
+                    match ifield {
+                        0 => frac.sample1 = sample_name_map[field],
+                        1 => frac.sample2 = sample_name_map[field],
+                        2 => frac.num_info_sites = field.parse::<u32>().unwrap(),
+                        3 => frac.discord = field.parse::<f64>().unwrap(),
+                        4 => frac.max_phi = field.parse::<f64>().unwrap(),
+                        5 => frac.iter = field.parse::<u32>().unwrap(),
+                        6 => frac.k_rec = field.parse::<f64>().unwrap(),
+                        7 => frac.ntrans = field.parse::<u32>().unwrap(),
+                        8 => frac.seq_ibd_ratio = field.parse::<f64>().unwrap(),
+                        9 => frac.count_ibd_fb_ratio = field.parse::<f64>().unwrap(),
+                        10 => frac.count_ibd_vit_ratio = field.parse::<f64>().unwrap(),
+                        _ => {}
+                    }
+                }
+                res.push(frac);
+                res.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+            }
+            res
+        }
+
+        let sample_name_map = input.samples.m();
+
+        assert_ne!(
+            load_data_from_hmm_seg_res("tmp_hmmibdrs.hmm.txt", sample_name_map),
+            load_data_from_hmm_seg_res("tmp_hmmibd.hmm.txt", sample_name_map)
+        );
+        assert_ne!(
+            load_data_from_hmm_frac_res("tmp_hmmibdrs.hmm.txt", sample_name_map),
+            load_data_from_hmm_frac_res("tmp_hmmibd.hmm.txt", sample_name_map)
+        );
+    }
 }
