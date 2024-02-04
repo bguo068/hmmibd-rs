@@ -134,53 +134,53 @@ impl<'a> HmmRunner<'a> {
         for isnp in start_chr..end_chr {
             let snp_ind = (isnp - start_chr) as usize;
             let isnp = isnp as usize;
-            let gi = geno[pair.0][isnp];
-            let gj = geno[pair.1][isnp];
+            let g_x = geno[pair.0][isnp];
+            let g_y = geno[pair.1][isnp];
             let eps = args.eps;
             let mut sv = PerSnpModelVariables::new();
 
             // get num of informative sites
-            if (ms.iiter == 0) && (gi.is_some()) && (gj.is_some()) {
+            if (ms.iiter == 0) && (g_x.is_some()) && (g_y.is_some()) {
                 // println!("self.data.majall={:?}", &self.data.majall);
-                if (gi == gj) && (gj == self.data.majall[isnp]) {
+                if (g_x == g_y) && (g_y == self.data.majall[isnp]) {
                 } else {
                     ms.num_info_site += 1;
                 }
-                if gi != gj {
+                if g_x != g_y {
                     ms.num_discord += 1;
                 }
             }
 
             // update b for a given sites (full loop will update whole chromosome)
             let pright = 1.0 - eps * (nall[isnp] - 1) as f64;
-            let (b0t, b1t) = if (gi == u8::MAX) || (gj == u8::MAX) {
+            let (b0t, b1t) = if (g_x == u8::MAX) || (g_y == u8::MAX) {
                 // missing
                 (1.0, 1.0)
             } else {
-                let f1i = freq1[isnp][gi as usize].as_option().unwrap() as f64;
-                let f1j = freq1[isnp][gj as usize].as_option().unwrap() as f64;
-                let f2i = freq2[isnp][gi as usize].as_option().unwrap() as f64;
-                let f2j = freq2[isnp][gj as usize].as_option().unwrap() as f64;
-                if gi == gj {
+                let f1_x = freq1[isnp][g_x as usize].as_option().unwrap() as f64;
+                let f1_y = freq1[isnp][g_y as usize].as_option().unwrap() as f64;
+                let f2_x = freq2[isnp][g_x as usize].as_option().unwrap() as f64;
+                let f2_y = freq2[isnp][g_y as usize].as_option().unwrap() as f64;
+                if g_x == g_y {
                     // concordant genotype
                     cv.nsites += 1;
-                    let fmean = ((f1i + f2j) / 2.0) as f64;
+                    let fmean = ((f1_x + f2_y) / 2.0) as f64;
                     let b0t = pright * pright * fmean + eps * eps * (1.0 - fmean);
-                    let b1t = pright * pright * f1i * f2j
-                        + pright * eps * f1i * (1.0 - f2j)
-                        + pright * eps * (1.0 - f1i) * f2j
-                        + eps * eps * (1.0 - f1i) * (1.0 - f2j);
+                    let b1t = pright * pright * f1_x * f2_y
+                        + pright * eps * f1_x * (1.0 - f2_y)
+                        + pright * eps * (1.0 - f1_x) * f2_y
+                        + eps * eps * (1.0 - f1_x) * (1.0 - f2_y);
                     (b0t, b1t)
                 } else {
                     // discordant genotype
                     cv.nsites += 1;
-                    let fmeani = (f1i + f2i) / 2.0;
-                    let fmeanj = (f1j + f2j) / 2.0;
+                    let fmeani = (f1_x + f2_x) / 2.0;
+                    let fmeanj = (f1_y + f2_y) / 2.0;
                     let b0t =
                         pright * eps * (fmeani + fmeanj) + eps * eps * (1.0 - fmeani - fmeanj);
-                    let b1t = pright * pright * f1i * f2j
-                        + pright * eps * (f1i * (1.0 - f2j) + f2j * (1.0 - f1i))
-                        + eps * eps * (1.0 - f1i) * (1.0 - f2j);
+                    let b1t = pright * pright * f1_x * f2_y
+                        + pright * eps * (f1_x * (1.0 - f2_y) + f2_y * (1.0 - f1_x))
+                        + eps * eps * (1.0 - f1_x) * (1.0 - f2_y);
                     (b0t, b1t)
                 }
             };
