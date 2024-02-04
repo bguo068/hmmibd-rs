@@ -154,6 +154,28 @@ where
         self.data.extend(other.data.iter());
         self.nrows += other.nrows;
     }
+    pub fn get_row_chunk_view(&self, start_row: usize, end_row: usize) -> MatrixView<T> {
+        assert!(start_row <= end_row);
+        let nrows = self.get_nrows();
+        let ncols = self.get_ncols();
+        assert!(end_row <= nrows, "end_row={end_row}, nrows={nrows}");
+        MatrixView {
+            data: &self.data[start_row * ncols..end_row * ncols],
+            ncols,
+            nrows: end_row - start_row,
+        }
+    }
+    pub fn get_row_chunk_view_mut(&mut self, start_row: usize, end_row: usize) -> MatrixViewMut<T> {
+        assert!(start_row <= end_row);
+        let nrows = self.get_nrows();
+        let ncols = self.get_ncols();
+        assert!(end_row < nrows);
+        MatrixViewMut {
+            data: &mut self.data[start_row * ncols..end_row * ncols],
+            ncols,
+            nrows: end_row - start_row,
+        }
+    }
 }
 
 impl<T> Index<usize> for Matrix<T>
@@ -208,5 +230,78 @@ where
             ncols: self.ncols,
             nrows,
         }
+    }
+}
+
+pub struct MatrixView<'a, T>
+where
+    T: Copy + Default + AsOption + PartialOrd,
+{
+    data: &'a [T],
+    ncols: usize,
+    nrows: usize,
+}
+impl<'a, T> MatrixView<'a, T>
+where
+    T: Copy + Default + AsOption + PartialOrd,
+{
+    pub fn get_nrows(self) -> usize {
+        self.nrows
+    }
+    pub fn get_ncols(self) -> usize {
+        self.ncols
+    }
+}
+impl<'a, T> Index<usize> for MatrixView<'a, T>
+where
+    T: Copy + Default + AsOption + PartialOrd,
+{
+    type Output = [T];
+    fn index(&self, index: usize) -> &Self::Output {
+        let s = index * self.ncols;
+        let e = s + self.ncols;
+        &self.data[s..e]
+    }
+}
+
+pub struct MatrixViewMut<'a, T>
+where
+    T: Copy + Default + AsOption + PartialOrd,
+{
+    data: &'a mut [T],
+    ncols: usize,
+    nrows: usize,
+}
+impl<'a, T> MatrixViewMut<'a, T>
+where
+    T: Copy + Default + AsOption + PartialOrd,
+{
+    pub fn get_nrows(self) -> usize {
+        self.nrows
+    }
+    pub fn get_ncols(self) -> usize {
+        self.ncols
+    }
+}
+
+impl<'a, T> Index<usize> for MatrixViewMut<'a, T>
+where
+    T: Copy + Default + AsOption + PartialOrd,
+{
+    type Output = [T];
+    fn index(&self, index: usize) -> &Self::Output {
+        let s = index * self.ncols;
+        let e = s + self.ncols;
+        &self.data[s..e]
+    }
+}
+impl<'a, T> IndexMut<usize> for MatrixViewMut<'a, T>
+where
+    T: Copy + Default + AsOption + PartialOrd,
+{
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        let s = index * self.ncols;
+        let e = s + self.ncols;
+        &mut self.data[s..e]
     }
 }
