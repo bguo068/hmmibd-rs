@@ -1,2 +1,6 @@
 /target
 /Cargo.lock
+tmp*
+!tests/cmp_c_vs_rust.sh
+tests/*
+hmmIBD
