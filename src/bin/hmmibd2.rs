@@ -32,10 +32,19 @@ fn main() {
                 .pairs
                 .par_chunks(par_chunk_size as usize)
                 .for_each(|chunk| {
+                    // a and b are reused for all pair iterations.  a and b are
+                    // in a larger scope to avoid repeated calculations which
+                    // reduce run time by > 20%
+
+                    // transition prob matrix, nsites x 2 x2
+                    let mut a = vec![];
+                    // emission prob matrix,  nsites x  x 2 (O is known)
+                    let mut b = vec![];
+
                     for pair in chunk.iter() {
                         let pair = (pair.0 as usize, pair.1 as usize);
                         let mut out = OutputBuffer::new(&outfiles, 5, 1);
-                        runner.run_hmm_on_pair(pair, &mut out, suppress_frac);
+                        runner.run_hmm_on_pair(pair, &mut a, &mut b, &mut out, suppress_frac);
                         out.flush_frac();
                         out.flush_segs();
                         // println!("finish pair: {:4}, {:4}", pair.0, pair.1);
@@ -43,7 +52,7 @@ fn main() {
                 });
         })
     } else if cli.par_mode == 1 {
-        eprintln!("par-mode == 1. WARN: still need to verify accuracy of IBD segments");
+        // eprintln!("par-mode == 1. WARN: still need to verify accuracy of IBD segments");
         use std::sync::{Arc, RwLock};
         let chunks_done = Arc::new(RwLock::new((0usize, 0usize)));
         let chunk_pairs = input.get_chunk_pairs();
@@ -51,6 +60,15 @@ fn main() {
 
         pool.install(|| {
             chunk_pairs.par_iter().for_each(|chunkpair| {
+                // a and b are reused for all pair iterations.  a and b are
+                // in a larger scope to avoid repeated calculations which
+                // reduce run time by > 20%
+
+                // transition prob matrix, nsites x 2 x2
+                let mut a = vec![];
+                // emission prob matrix,  nsites x  x 2 (O is known)
+                let mut b = vec![];
+
                 let chunkpair_input = input.clone_inputdata_for_chunkpair(*chunkpair);
                 let max_npairs = par_chunk_size as usize * par_chunk_size as usize - 1;
                 let mut outbuffer = OutputBuffer::new(&outfiles, 10 * max_npairs, max_npairs);
@@ -59,7 +77,7 @@ fn main() {
 
                 for pair in pairs.iter() {
                     let pair = (pair.0 as usize, pair.1 as usize);
-                    runner.run_hmm_on_pair(pair, &mut outbuffer, suppress_frac);
+                    runner.run_hmm_on_pair(pair, &mut a, &mut b, &mut outbuffer, suppress_frac);
                 }
 
                 outbuffer.flush_frac();

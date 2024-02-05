@@ -56,7 +56,7 @@ pub struct PerChrModelVariables {
     /// Rabiner's emission probabily matrix: 1 x nsites
     /// This is not the full matrix, as it is calcualted per pair per site
     /// the observation symbol is already known
-    pub b: Matrix<f64>,
+    // pub b: Matrix<f64>,
     /// Forward/alpha variable matrix: nstates (2) x nsites
     pub alpha: Matrix<f64>,
     /// Backward/alpha variable matrix: nstates (2) x nsites
@@ -72,7 +72,6 @@ pub struct PerChrModelVariables {
 impl PerChrModelVariables {
     pub fn new() -> Self {
         Self {
-            b: Matrix::from_shape(2, 0, 0.0),
             alpha: Matrix::from_shape(2, 0, 0.0),
             beta: Matrix::from_shape(2, 0, 0.0),
             phi: Matrix::from_shape(2, 0, 0.0),
@@ -86,7 +85,6 @@ impl PerChrModelVariables {
     pub fn resize_and_clear(&mut self, data: &InputData, chrid: usize) {
         let r = data.sites.get_chrom_pos_idx_ranges(chrid as usize);
         let n = r.1 - r.0;
-        self.b.resize_and_clear(2, n, 0.0);
         self.alpha.resize_and_clear(2, n, 0.0);
         self.beta.resize_and_clear(2, n + 1, 0.0); // TODO figure out plus 1
         self.phi.resize_and_clear(2, n, 0.0);
@@ -100,8 +98,6 @@ impl PerChrModelVariables {
 
 #[derive(Clone, Copy, Default)]
 pub struct PerSnpModelVariables {
-    /// Rabiner's transmission probability matrix: nstates(2) x nstates(2)
-    pub a: [[f64; 2]; 2],
     /// Rabiner's xi matrix but are restricted at a given sites. nstates (2) x nstates (x)
     pub xi: [[f64; 2]; 2],
     /// Rabiner's gamma matrix but are restricted a given sites: nsites (2)
