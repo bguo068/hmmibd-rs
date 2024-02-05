@@ -139,6 +139,7 @@ impl<'a> HmmRunner<'a> {
             }
 
             // update b for a given sites (full loop will update whole chromosome)
+
             let pright = 1.0 - eps * (nall[t] - 1) as f64;
             let (b0t, b1t) = if (g_xt == u8::MAX) || (g_yt == u8::MAX) {
                 // missing
@@ -152,6 +153,7 @@ impl<'a> HmmRunner<'a> {
                 let f2_y = freq2[t][g_yt].as_option().unwrap();
                 if g_xt == g_yt {
                     // concordant genotype
+                    // Schaffner's Additional File 1: Eq 2 and 3
                     cv.nsites += 1;
                     let fmean = (f1_x + f2_y) / 2.0;
                     let b0t = pright * pright * fmean + eps * eps * (1.0 - fmean);
@@ -162,6 +164,7 @@ impl<'a> HmmRunner<'a> {
                     (b0t, b1t)
                 } else {
                     // discordant genotype
+                    // Schaffner's Additional File 1: Eq 4 and 5
                     cv.nsites += 1;
                     let fmeani = (f1_x + f2_x) / 2.0;
                     let fmeanj = (f1_y + f2_y) / 2.0;
@@ -179,36 +182,48 @@ impl<'a> HmmRunner<'a> {
             // calcuate alpha, delta(phi) and psi
             if t == 0 {
                 // initiation
+                // Rabiner's Eq 32b
                 cv.psi[0][t] = 0;
                 cv.psi[1][t] = 0;
+                // Rabiner's Eq 32a (in log scale)
                 cv.phi[0][t] = pi[0].ln() + b0t.ln();
                 cv.phi[1][t] = pi[1].ln() + b1t.ln();
+                // Rabiner's Eq 19
                 cv.alpha[0][t] = pi[0] * b0t;
                 cv.alpha[1][t] = pi[1] * b1t;
                 // Scale init
                 cv.scale[0] = 1.0;
             } else {
                 // induction
+                // Schaffer's Additional File 1 Eq 1
                 let ptrans = ms.model.k_rec * (cm[t] - cm[t - 1]) as f64 / 100.0;
                 sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
                 sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
                 sv.a[0][0] = 1.0 - sv.a[0][1];
                 sv.a[1][1] = 1.0 - sv.a[1][0];
 
+                // Rabiner's Eq 20 for (alpha)
+                // Rabiner's Eq 33a for (phi)
+                // Rabiner's Eq 33b for (psi)
                 for i_o in 0..2 {
                     let mut max_val = f64::MIN;
                     let mut alpha_it = 0.0;
 
                     cv.scale[t] = 0.0;
                     for i_i in 0..2 {
+                        // Rabinar's Eq 33b (target)
                         let score = cv.phi[i_i][t - 1] + sv.a[i_i][i_o].ln();
                         if score > max_val {
                             max_val = score;
+                            // Rabiner's Eq 33b for (psi)
                             cv.psi[i_o][t] = i_i as u8;
                         }
+                        // Rabiner's Eq 33a for (phi)
                         cv.phi[i_o][t] = max_val + cv.b[i_o][t].ln();
+                        // Rabiner's Eq 20 for (alpha, part)
                         alpha_it += cv.alpha[i_i][t - 1] * sv.a[i_i][i_o] * cv.b[i_o][t];
                     }
+                    // Rabiner's Eq 20 for (alpha, sum of part)
                     cv.alpha[i_o][t] = alpha_it;
                     // Scale addup
                     cv.scale[t] += cv.alpha[i_o][t];
@@ -219,13 +234,24 @@ impl<'a> HmmRunner<'a> {
                 }
             }
         }
+
+        // Rabiner's Eq 34a and 34b
         let mut max_phi_local = cv.phi[1][nsites - 1];
         let mut max = 1;
         if cv.phi[1][nsites - 1] < cv.phi[0][nsites - 1] {
+            // Rabiner's Eq 34a
             max_phi_local = cv.phi[0][nsites - 1];
+            // Rabiner's Eq 34b
             max = 0;
         }
+        // Rabiner's Eq 34b
         cv.traj[nsites - 1] = max;
+
+        // Schaffner Additional File 1, page 4: "... positions on different
+        // chromosomes are considered infinitely separated. In the code, the
+        // latter is achieved by fitting data for different chromosomes
+        // separately under a given iteration of the model (in other words, data
+        // from all chromosomes are fit using common values of π and k) ..."
         ms.model.max_phi += max_phi_local;
     }
 
@@ -242,18 +268,21 @@ impl<'a> HmmRunner<'a> {
         let nsites = end_chr - start_chr;
 
         // init beta
+        // Rabiner's Eq 24
         cv.beta[0][nsites - 1] = 1.0;
         cv.beta[1][nsites - 1] = 1.0;
         // induction
         for t in (0..nsites - 1).rev() {
             let mut sv = PerSnpModelVariables::new();
 
+            // Schaffer's Additional File 1 Eq 1
             let ptrans = ms.model.k_rec * (cm[t + 1] - cm[t]) as f64 / 100.0;
             sv.a[0][1] = pi[1] - pi[1] * (-ptrans).exp();
             sv.a[1][0] = pi[0] - pi[0] * (-ptrans).exp();
             sv.a[0][0] = 1.0 - sv.a[0][1];
             sv.a[1][1] = 1.0 - sv.a[1][0];
 
+            // Rabiner's Eq 25
             let mut sum = [0.0, 0.0];
             for (i_i, i_o) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
                 sum[i_i] += cv.beta[i_o][t + 1] * sv.a[i_i][i_o] * cv.b[i_o][t + 1];
@@ -267,6 +296,7 @@ impl<'a> HmmRunner<'a> {
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
         let nsites = end_chr - start_chr;
 
+        // Rabiner's Eq 35
         let mut max = cv.traj[nsites - 1] as usize;
         for t in (0..nsites - 1).rev() {
             cv.traj[t] = cv.psi[max][t + 1];
@@ -289,10 +319,13 @@ impl<'a> HmmRunner<'a> {
         let mut sv = PerSnpModelVariables::new();
 
         for t in 0..nsites {
+            // gamma => Rabiner's Eq 28
             let mut p_ibd = cv.alpha[0][t] * cv.beta[0][t];
             let p_dbd = cv.alpha[1][t] * cv.beta[1][t];
             p_ibd = p_ibd / (p_ibd + p_dbd);
 
+            // Part of Schaffner's Additional File 1: model update via Baum-Welch
+            // Similar to Rabiner's Eq 39a and 40a, also related to Eq 43a
             rs.count_ibd_fb += p_ibd;
             rs.count_dbd_fb += 1.0 - p_ibd;
 
@@ -301,12 +334,14 @@ impl<'a> HmmRunner<'a> {
                 break;
             }
 
+            // Schaffer's Additional File 1 Eq 1
             let ptrans = ms.model.k_rec * (cm[t + 1] - cm[t]) as f64 / 100.0;
             sv.a[0][1] = pi[1] - pi[1] * (-ptrans).exp();
             sv.a[1][0] = pi[0] - pi[0] * (-ptrans).exp();
             sv.a[0][0] = 1.0 - sv.a[0][1];
             sv.a[1][1] = 1.0 - sv.a[1][0];
 
+            // Rabiner's Eq 37
             let mut xisum = 0.0;
             for (i_i, i_o) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
                 sv.xi[i_i][i_o] =
@@ -316,12 +351,17 @@ impl<'a> HmmRunner<'a> {
             for (is, js) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
                 sv.xi[is][js] /= xisum;
             }
+
+            // Rabiner's Eq 38
             sv.gamma[0] = sv.xi[0][1] + sv.xi[0][0];
             sv.gamma[1] = sv.xi[1][1] + sv.xi[1][0];
 
             let delpos = (pos[t + 1] - pos[t]) as f64;
             rs.seq_ibd_fb += delpos * sv.xi[0][0];
             rs.seq_dbd_fb += delpos * sv.xi[1][1];
+
+            // Part of Schaffner's Additional File 1: model update via Baum-Welch
+            // Also similar to Rabiner's 40b (trans_obs) and 40c (trans_pred)
             rs.trans_obs += sv.xi[0][1] + sv.xi[1][0];
             rs.trans_pred += sv.gamma[0] * sv.a[0][1] + sv.gamma[1] * sv.a[1][0];
         }
@@ -455,6 +495,11 @@ impl<'a> HmmRunner<'a> {
         }
 
         // reestimate parameters
+        //
+        // Part of Schaffner's Additional File 1: model update via Baum-Welch;
+        // trans_obs/pred: similar to Rabiner's 40b and 40c ;
+        // count_ibd_fb/count_ibd_fb: Similar to Rabiner's Eq 39a and 40a, also
+        // related to Eq 43a );
         pi[0] = rs.count_ibd_fb / (rs.count_ibd_fb + rs.count_dbd_fb);
         ms.model.k_rec *= rs.trans_obs / rs.trans_pred;
 
