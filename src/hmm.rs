@@ -701,3 +701,21 @@ fn test_hmm() {
         runner.run_hmm_on_pair(pair, &mut out, false);
     }
 }
+
+#[test]
+fn test_hmm_with_bcf() {
+    use crate::args::Arguments;
+    use crate::data::OutputFiles;
+    let args = Arguments::new_for_test_bcf();
+
+    let out = OutputFiles::new_from_args(&args, None, None);
+    let input = InputData::from_args(&args);
+
+    let runner = HmmRunner::new(&input);
+
+    for pair in input.pairs.iter().take(2) {
+        let pair = (pair.0 as usize, pair.1 as usize);
+        let mut out = OutputBuffer::new(&out, 1, 1);
+        runner.run_hmm_on_pair(pair, &mut out, false);
+    }
+}

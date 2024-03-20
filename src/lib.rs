@@ -43,6 +43,7 @@
 //        -
 
 pub mod args;
+pub mod bcf;
 pub mod data;
 pub mod genome;
 pub mod genome2;

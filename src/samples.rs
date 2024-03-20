@@ -3,7 +3,7 @@ use std::{
     io::{BufRead, BufReader, Read},
 };
 
-use crate::args::Arguments;
+use crate::{args::Arguments, bcf::DominantGenotype};
 
 #[derive(Clone)]
 pub struct Samples {
@@ -36,7 +36,7 @@ impl Samples {
             pop2_nsam,
         }
     }
-    pub fn from_args(args: &Arguments) -> Self {
+    pub fn from_args(args: &Arguments, dgt: Option<&DominantGenotype>) -> Self {
         let mut s = String::new();
         // get bad samples
         let mut bad_samples = HashSet::<String>::new();
@@ -51,46 +51,61 @@ impl Samples {
             }
         }
 
-        // get samples from data headers
-        s.clear();
         let mut v = vec![];
         let mut m = HashMap::new();
         let mut pop1_nsam = 0u32;
         let mut pop2_nsam = 0u32;
-        std::fs::File::open(&args.data_file1)
-            .map(BufReader::new)
-            .unwrap()
-            .read_line(&mut s)
-            .unwrap();
-        for x in s.trim().split("\t").skip(2) {
-            if !bad_samples.contains(x) {
-                assert!(!m.contains_key(x), "duplicated sample names");
-                m.insert(x.to_owned(), v.len() as u32);
-                pop1_nsam += 1;
-
-                v.push(x.to_owned());
-            }
-        }
-
-        // data files
-        s.clear();
-        if let Some(data_file2) = args.data_file2.as_ref() {
-            std::fs::File::open(data_file2)
-                .map(BufReader::new)
-                .unwrap()
-                .read_line(&mut s)
-                .unwrap();
-            for x in s.trim().split("\t").skip(2) {
-                if !bad_samples.contains(x) {
-                    assert!(!m.contains_key(x), "duplicated sample names");
-                    m.insert(x.to_owned(), v.len() as u32);
-                    pop2_nsam += 1;
-                    v.push(x.to_owned());
+        match dgt {
+            Some(dgt) => {
+                // get samples from the DominantGenotype Object
+                for s in dgt.get_samples() {
+                    if bad_samples.contains(s) {
+                        continue;
+                    }
+                    m.insert(s.to_owned(), v.len() as u32);
+                    v.push(s.to_owned());
+                    pop1_nsam += 1;
                 }
             }
-        }
+            None => {
+                // get samples from data headers
+                s.clear();
+                std::fs::File::open(&args.data_file1)
+                    .map(BufReader::new)
+                    .unwrap()
+                    .read_line(&mut s)
+                    .unwrap();
+                for x in s.trim().split("\t").skip(2) {
+                    if !bad_samples.contains(x) {
+                        assert!(!m.contains_key(x), "duplicated sample names");
+                        m.insert(x.to_owned(), v.len() as u32);
+                        pop1_nsam += 1;
 
-        assert_eq!(pop1_nsam + pop2_nsam, v.len() as u32);
+                        v.push(x.to_owned());
+                    }
+                }
+
+                // data files
+                s.clear();
+                if let Some(data_file2) = args.data_file2.as_ref() {
+                    std::fs::File::open(data_file2)
+                        .map(BufReader::new)
+                        .unwrap()
+                        .read_line(&mut s)
+                        .unwrap();
+                    for x in s.trim().split("\t").skip(2) {
+                        if !bad_samples.contains(x) {
+                            assert!(!m.contains_key(x), "duplicated sample names");
+                            m.insert(x.to_owned(), v.len() as u32);
+                            pop2_nsam += 1;
+                            v.push(x.to_owned());
+                        }
+                    }
+                }
+
+                assert_eq!(pop1_nsam + pop2_nsam, v.len() as u32);
+            }
+        }
 
         Self {
             m,
@@ -117,5 +132,5 @@ impl Samples {
 #[test]
 fn read_samples() {
     let args = Arguments::new_for_test();
-    Samples::from_args(&args);
+    Samples::from_args(&args, None);
 }

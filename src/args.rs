@@ -20,6 +20,14 @@ pub struct Arguments {
     #[arg(short = 'I', long)]
     pub data_file2: Option<String>,
 
+    /// Optional: flag indicating whether the input file is of BCF format
+    #[arg(long, default_value_t = false)]
+    pub from_bcf: bool,
+
+    /// Optional: when from_bcf is set, use this config file to replace the builtin filtering criteria
+    #[arg(long)]
+    pub dom_gt_config: Option<String>,
+
     ///  Optional: File of allele frequencies for the sample population. Format:
     ///  tab-delimited, no header, one variant per row. Line format: <chromosome
     ///  (int)> <position (bp, int)> <allele 1 freq> <all 2 freq> [<all 3 freq>]
@@ -151,8 +159,47 @@ impl Arguments {
         Self {
             data_file1: String::from("samp_data/pf3k_Cambodia_13.txt"),
             data_file2: Some(String::from("samp_data/pf3k_Ghana_13.txt")),
+            from_bcf: false,
+            dom_gt_config: None,
             freq_file1: Some(String::from("samp_data/freqs_pf3k_Cambodia_13.txt")),
             freq_file2: Some(String::from("samp_data/freqs_pf3k_Ghana_13.txt")),
+            max_iter: 5,
+            bad_file: None,
+            good_file: None,
+            k_rec_max: f64::MAX,
+            output: None,
+            suppress_frac: false,
+            buffer_size_segments: Some(1000000),
+            buffer_size_frac: Some(10000),
+            eps: 0.001,
+            min_inform: 10,
+            min_discord: 0.0,
+            max_discord: 1.0,
+            min_snp_sep: 5,
+            rec_args: RecombinationArg {
+                rec_rate: 7.4e-7,
+                genome: None,
+            },
+            fit_thresh_dpi: 0.001,
+            fit_thresh_dk: 0.01,
+            fit_thresh_drelk: 0.001,
+            max_all: 8,
+            filt_min_seg_cm: None,
+            filt_max_tmrca: None,
+            filt_ibd_only: false,
+            num_threads: 1,
+            par_chunk_size: 120,
+            par_mode: 0,
+        }
+    }
+    pub fn new_for_test_bcf() -> Self {
+        Self {
+            data_file1: String::from("pf7_data/pf7_chr1_20samples_maf0.01.bcf"),
+            data_file2: None,
+            from_bcf: true,
+            dom_gt_config: Some(String::from("pf7_data/dom_gt_config.toml")),
+            freq_file1: None,
+            freq_file2: None,
             max_iter: 5,
             bad_file: None,
             good_file: None,
