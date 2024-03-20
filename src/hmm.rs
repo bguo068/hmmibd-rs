@@ -16,19 +16,26 @@ impl<'a> HmmRunner<'a> {
     pub fn run_hmm_on_pair(
         &self,
         pair: (usize, usize),
+        a: &mut Vec<[[f64; 2]; 2]>,
+        b: &mut Vec<[f64; 2]>,
         out: &mut OutputBuffer<'a>,
         suppress_frac: bool,
     ) {
         let mut ms = ModelParamState::new(self.data);
         let mut cv = PerChrModelVariables::new();
         let mut rs = RunningStats::new();
+        let total_nsites = self.data.sites.get_pos_cm_slice().len();
+        a.clear();
+        b.clear();
+        a.resize(total_nsites, [[0.0; 2]; 2]);
+        b.resize(total_nsites, [0.0; 2]);
 
         for iiter in 0..self.data.args.max_iter {
             ms.iiter = iiter as usize;
             ms.model.max_phi = 0.0;
             rs = RunningStats::new();
 
-            self.run_over_fit_iterations(pair, &mut ms, &mut rs, &mut cv, out);
+            self.run_over_fit_iterations(pair, &mut ms, &mut rs, &mut cv, a, b, out);
             if ms.is_fit_finished() {
                 break;
             }
@@ -48,25 +55,13 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
+        a: &mut Vec<[[f64; 2]; 2]>,
+        b: &mut Vec<[f64; 2]>,
         out: &mut OutputBuffer<'a>,
     ) {
         let nchrom = self.data.genome.get_nchrom();
         for chrid in 0..nchrom as usize {
-            self.run_over_single_chromsome(pair, chrid, ms, rs, cv, out);
-            // if (chrid > 0) || (ms.iiter > 0) {
-            //     continue;
-            // }
-            //     println!(
-            //         "iter: {}, chrid {}: \ntraj: {:?}, \nalpha: {:?}, \nbeta: {:?}, \nb={:?} \nphi={:?} \npsi={:?}",
-            //         ms.iiter,
-            //         chrid,
-            //         &cv.traj[0..4],
-            //         &cv.alpha.get_row_raw_slice(0)[0..6],
-            //         &cv.beta.get_row_raw_slice(0)[0..6],
-            //         &cv.b.get_row_raw_slice(0)[0..6],
-            //         &cv.phi.get_row_raw_slice(0)[0..6],
-            //         &cv.psi.get_row_raw_slice(0)[0..6],
-            //     );
+            self.run_over_single_chromsome(pair, chrid, ms, rs, cv, a, b, out);
         }
     }
 
@@ -77,6 +72,8 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
+        a: &mut Vec<[[f64; 2]; 2]>,
+        b: &mut Vec<[f64; 2]>,
         out: &mut OutputBuffer<'a>,
     ) {
         // skip empty chromosomes
@@ -86,16 +83,16 @@ impl<'a> HmmRunner<'a> {
         }
         cv.resize_and_clear(self.data, chrid);
         // iterator over snp forward to calculate
-        // - b
+        // - a/b
         // - alpha
         // - delta
         // - psi
         // - max_phiL
-        self.run_over_snp_1_fwd(pair, chrid, ms, cv);
+        self.run_over_snp_1_fwd(pair, chrid, ms, cv, a, b);
 
         // iterator over snp backward to calcuate
         // - beta
-        self.run_over_snp_2_back(chrid, ms, cv);
+        self.run_over_snp_2_back(chrid, cv, a, b);
 
         // - traj
         self.run_over_snp_3_back(chrid, cv);
@@ -104,7 +101,7 @@ impl<'a> HmmRunner<'a> {
         // - xi
         // - gamma
         // - update rs
-        self.run_over_snp_4_fwd(chrid, ms, rs, cv);
+        self.run_over_snp_4_fwd(chrid, rs, cv, a, b);
 
         if (ms.iiter == (self.data.args.max_iter - 1) as usize) || ms.finish_fit {
             self.print_final_viterbi_trajectory(pair, chrid, rs, cv, out, ms);
@@ -116,289 +113,269 @@ impl<'a> HmmRunner<'a> {
         pair: (usize, usize),
         chrid: usize,
         ms: &mut ModelParamState,
-        // rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
+        a_gw: &mut Vec<[[f64; 2]; 2]>,
+        b_gw: &mut Vec<[f64; 2]>,
     ) {
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let geno = &self.data.geno;
+        let geno_x = &self.data.geno[pair.0][start_chr..end_chr];
+        let geno_y = &self.data.geno[pair.1][start_chr..end_chr];
         let args = &self.data.args;
-        let freq1 = &self.data.freq1;
-        let freq2 = match self.data.freq2.as_ref() {
+        let freq1_all = &self.data.freq1;
+        let freq2_all = match self.data.freq2.as_ref() {
             Some(freq2) => freq2,
-            None => freq1,
+            None => freq1_all,
         };
+        let freq1 = freq1_all.get_row_chunk_view(start_chr, end_chr);
+        let freq2 = freq2_all.get_row_chunk_view(start_chr, end_chr);
         let pi = &ms.model.pi;
-        let nall = &self.data.nall;
+        let nall = &self.data.nall[start_chr..end_chr];
+        let majall = &self.data.majall[start_chr..end_chr];
+        let cm = &self.data.sites.get_pos_cm_slice()[start_chr..end_chr];
+        let nsites = end_chr - start_chr;
+        let a_chr = &mut a_gw[start_chr..end_chr];
+        let b_chr = &mut b_gw[start_chr..end_chr];
 
-        for isnp in start_chr..end_chr {
-            let snp_ind = (isnp - start_chr) as usize;
-            let isnp = isnp as usize;
-            let gi = geno[pair.0][isnp];
-            let gj = geno[pair.1][isnp];
+        for t in 0..nsites {
+            let g_xt = geno_x[t];
+            let g_yt = geno_y[t];
             let eps = args.eps;
-            let mut sv = PerSnpModelVariables::new();
+            // let mut sv = PerSnpModelVariables::new();
 
             // get num of informative sites
-            if (ms.iiter == 0) && (gi.is_some()) && (gj.is_some()) {
-                // println!("self.data.majall={:?}", &self.data.majall);
-                if (gi == gj) && (gj == self.data.majall[isnp]) {
+            if (ms.iiter == 0) && (g_xt.is_some()) && (g_yt.is_some()) {
+                if (g_xt == g_yt) && (g_yt == majall[t]) {
                 } else {
                     ms.num_info_site += 1;
                 }
-                if gi != gj {
+                if g_xt != g_yt {
                     ms.num_discord += 1;
                 }
             }
 
             // update b for a given sites (full loop will update whole chromosome)
-            let pright = 1.0 - eps * (nall[isnp] - 1) as f64;
-            let (b0t, b1t) = if (gi == u8::MAX) || (gj == u8::MAX) {
-                // missing
-                (1.0, 1.0)
-            } else {
-                let f1i = freq1[isnp][gi as usize].as_option().unwrap() as f64;
-                let f1j = freq1[isnp][gj as usize].as_option().unwrap() as f64;
-                let f2i = freq2[isnp][gi as usize].as_option().unwrap() as f64;
-                let f2j = freq2[isnp][gj as usize].as_option().unwrap() as f64;
-                if gi == gj {
-                    // concordant genotype
-                    cv.nsites += 1;
-                    let fmean = ((f1i + f2j) / 2.0) as f64;
-                    let b0t = pright * pright * fmean + eps * eps * (1.0 - fmean);
-                    let b1t = pright * pright * f1i * f2j
-                        + pright * eps * f1i * (1.0 - f2j)
-                        + pright * eps * (1.0 - f1i) * f2j
-                        + eps * eps * (1.0 - f1i) * (1.0 - f2j);
-                    (b0t, b1t)
+            let b = &mut b_chr[t];
+            if ms.iiter == 0 {
+                let pright = 1.0 - eps * (nall[t] - 1) as f64;
+                let (b0t, b1t) = if (g_xt == u8::MAX) || (g_yt == u8::MAX) {
+                    // missing
+                    (1.0, 1.0)
                 } else {
-                    // discordant genotype
-                    cv.nsites += 1;
-                    let fmeani = (f1i + f2i) / 2.0;
-                    let fmeanj = (f1j + f2j) / 2.0;
-                    let b0t =
-                        pright * eps * (fmeani + fmeanj) + eps * eps * (1.0 - fmeani - fmeanj);
-                    let b1t = pright * pright * f1i * f2j
-                        + pright * eps * (f1i * (1.0 - f2j) + f2j * (1.0 - f1i))
-                        + eps * eps * (1.0 - f1i) * (1.0 - f2j);
-                    (b0t, b1t)
-                }
-            };
-            cv.b[0][snp_ind] = b0t;
-            cv.b[1][snp_ind] = b1t;
-
-            // println!("snp_ind={snp_ind}\tpos={}\tb[0]={b0t:.5}\tb[1]={b1t:.5}\tgi={gi}\tgj={gj}\tpright={pright}\t{}", pos[isnp],nall[snp_ind]);
-
-            // println!("++++++++++++++++++ snp_ind={snp_ind}");
-
-            // calcuate alpha, delta(phi) and psi
-            if snp_ind == 0 {
-                // initiation
-                cv.psi[0][snp_ind] = 0;
-                cv.psi[1][snp_ind] = 0;
-                cv.phi[0][snp_ind] = pi[0].ln() + b0t.ln();
-                cv.phi[1][snp_ind] = pi[1].ln() + b1t.ln();
-                cv.alpha[0][snp_ind] = pi[0] * b0t;
-                cv.alpha[1][snp_ind] = pi[1] * b1t;
-                // assert!(cv.alpha[0][snp_ind].gt(&0.0));
-                // assert!(cv.alpha[1][snp_ind].gt(&0.0));
-                // TODO: scalre value is very confusing
-                cv.scale[0] = 1.0;
-            } else {
-                // induction
-                let ptrans = ms.model.k_rec * (cm[isnp] - cm[isnp - 1]) as f64 / 100.0;
-                sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
-                sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
-                sv.a[0][0] = 1.0 - sv.a[0][1];
-                sv.a[1][1] = 1.0 - sv.a[1][0];
-
-                for js in 0..2 {
-                    let mut max_val = f64::MIN;
-                    let mut alpha_jt = 0.0;
-
-                    // TODO: scalre value is very confusing, should move it out of for js in 0..2 loop
-                    cv.scale[snp_ind] = 0.0;
-                    for is in 0..2 {
-                        let score = cv.phi[is][snp_ind - 1] + sv.a[is][js].ln();
-                        if score > max_val {
-                            max_val = score;
-                            cv.psi[js][snp_ind] = is as u8;
-                        }
-                        cv.phi[js][snp_ind] = max_val + cv.b[js][snp_ind].ln();
-                        alpha_jt += cv.alpha[is][snp_ind - 1] * sv.a[is][js] * cv.b[js][snp_ind];
-                        // println!(
-                        //     "chrid={chrid}, isnp={isnp} snp_ind={snp_ind} js={js} is={is} alpha={} a={} b={} ",
-                        //     cv.alpha[is][snp_ind - 1],
-                        //     sv.a[is][js],
-                        //     cv.b[js][snp_ind],
-                        // );
+                    let g_xt = g_xt as usize;
+                    let g_yt = g_yt as usize;
+                    let f1_x = freq1[t][g_xt].as_option().unwrap();
+                    let f1_y = freq1[t][g_yt].as_option().unwrap();
+                    let f2_x = freq2[t][g_xt].as_option().unwrap();
+                    let f2_y = freq2[t][g_yt].as_option().unwrap();
+                    if g_xt == g_yt {
+                        // concordant genotype
+                        // Schaffner's Additional File 1: Eq 2 and 3
+                        cv.nsites += 1;
+                        let fmean = (f1_x + f2_y) / 2.0;
+                        let b0t = pright * pright * fmean + eps * eps * (1.0 - fmean);
+                        let b1t = pright * pright * f1_x * f2_y
+                            + pright * eps * f1_x * (1.0 - f2_y)
+                            + pright * eps * (1.0 - f1_x) * f2_y
+                            + eps * eps * (1.0 - f1_x) * (1.0 - f2_y);
+                        (b0t, b1t)
+                    } else {
+                        // discordant genotype
+                        // Schaffner's Additional File 1: Eq 4 and 5
+                        cv.nsites += 1;
+                        let fmeani = (f1_x + f2_x) / 2.0;
+                        let fmeanj = (f1_y + f2_y) / 2.0;
+                        let b0t =
+                            pright * eps * (fmeani + fmeanj) + eps * eps * (1.0 - fmeani - fmeanj);
+                        let b1t = pright * pright * f1_x * f2_y
+                            + pright * eps * (f1_x * (1.0 - f2_y) + f2_y * (1.0 - f1_x))
+                            + eps * eps * (1.0 - f1_x) * (1.0 - f2_y);
+                        (b0t, b1t)
                     }
-                    cv.alpha[js][snp_ind] = alpha_jt;
-
-                    // TODO: scalre value is very confusing
-                    cv.scale[snp_ind] += cv.alpha[js][snp_ind];
-                }
-                // scaling
-                // println!("scale: {} ", cv.scale[snp_ind]);
-                for js in 0..2 {
-                    // assert!(cv.scale[snp_ind] > 0.0);
-                    cv.alpha[js][snp_ind] = cv.alpha[js][snp_ind] / cv.scale[snp_ind];
-                }
+                };
+                b[0] = b0t;
+                b[1] = b1t;
             }
 
-            // println!("snp_ind={snp_ind}\tpos={}\tpsi0={:.4}\tpsi1={:.4}\tphi0={:.4}\tphi1={:.4}\talpha0={:.4}\talpha1={:.4}",
-            //     pos[isnp],
-            //     cv.psi[0][snp_ind],
-            //     cv.psi[1][snp_ind],
-            //     cv.phi[0][snp_ind],
-            //     cv.phi[1][snp_ind],
-            //     cv.alpha[0][snp_ind],
-            //     cv.alpha[1][snp_ind]);
+            // calcuate alpha, delta(phi) and psi
+            if t == 0 {
+                // initiation
+                // Rabiner's Eq 32b
+                cv.psi[0][t] = 0;
+                cv.psi[1][t] = 0;
+                // Rabiner's Eq 32a (in log scale)
+                cv.phi[0][t] = pi[0].ln() + b[0].ln();
+                cv.phi[1][t] = pi[1].ln() + b[1].ln();
+                // Rabiner's Eq 19
+                cv.alpha[0][t] = pi[0] * b[0];
+                cv.alpha[1][t] = pi[1] * b[1];
+                // Scale init
+                cv.scale[0] = 1.0;
+            } else {
+                // only recalculate for each  pair and iteration in the 1st fwd loop
+
+                let a = &mut a_chr[t - 1];
+                // induction
+                // Schaffer's Additional File 1 Eq 1
+                let ptrans = ms.model.k_rec * (cm[t] - cm[t - 1]) as f64 / 100.0;
+                a[0][1] = pi[1] - pi[1] * (-ptrans).exp();
+                a[1][0] = pi[0] - pi[0] * (-ptrans).exp();
+                a[0][0] = 1.0 - a[0][1];
+                a[1][1] = 1.0 - a[1][0];
+
+                // Rabiner's Eq 20 for (alpha)
+                // Rabiner's Eq 33a for (phi)
+                // Rabiner's Eq 33b for (psi)
+                for i_o in 0..2 {
+                    let mut max_val = f64::MIN;
+                    let mut alpha_it = 0.0;
+
+                    cv.scale[t] = 0.0;
+                    for i_i in 0..2 {
+                        // Rabinar's Eq 33b (target)
+                        let score = cv.phi[i_i][t - 1] + a[i_i][i_o].ln();
+                        if score > max_val {
+                            max_val = score;
+                            // Rabiner's Eq 33b for (psi)
+                            cv.psi[i_o][t] = i_i as u8;
+                        }
+                        // Rabiner's Eq 33a for (phi)
+                        cv.phi[i_o][t] = max_val + b[i_o].ln();
+                        // Rabiner's Eq 20 for (alpha, part)
+                        alpha_it += cv.alpha[i_i][t - 1] * a[i_i][i_o] * b[i_o];
+                    }
+                    // Rabiner's Eq 20 for (alpha, sum of part)
+                    cv.alpha[i_o][t] = alpha_it;
+                    // Scale addup
+                    cv.scale[t] += cv.alpha[i_o][t];
+                }
+                // scaling
+                for i in 0..2 {
+                    cv.alpha[i][t] = cv.alpha[i][t] / cv.scale[t];
+                }
+            }
         }
-        // let last_snp = (end_chr - 1) as usize;
-        let last_snp_indx = (end_chr - start_chr - 1) as usize;
-        let mut max_phi_local = cv.phi[1][last_snp_indx];
+
+        // Rabiner's Eq 34a and 34b
+        let mut max_phi_local = cv.phi[1][nsites - 1];
         let mut max = 1;
-        if cv.phi[1][last_snp_indx] < cv.phi[0][last_snp_indx] {
-            max_phi_local = cv.phi[0][last_snp_indx];
+        if cv.phi[1][nsites - 1] < cv.phi[0][nsites - 1] {
+            // Rabiner's Eq 34a
+            max_phi_local = cv.phi[0][nsites - 1];
+            // Rabiner's Eq 34b
             max = 0;
         }
-        cv.traj[last_snp_indx] = max;
-        ms.model.max_phi += max_phi_local;
+        // Rabiner's Eq 34b
+        cv.traj[nsites - 1] = max;
 
-        // println!(
-        //     "last_snp={last_snp_indx}\tmax={max}\tmax_phi{}",
-        //     ms.model.max_phi
-        // );
+        // Schaffner Additional File 1, page 4: "... positions on different
+        // chromosomes are considered infinitely separated. In the code, the
+        // latter is achieved by fitting data for different chromosomes
+        // separately under a given iteration of the model (in other words, data
+        // from all chromosomes are fit using common values of π and k) ..."
+        ms.model.max_phi += max_phi_local;
     }
+
+    /// Cacluating Beta
     pub fn run_over_snp_2_back(
         &self,
         chrid: usize,
-        ms: &mut ModelParamState,
         cv: &mut PerChrModelVariables,
+        a_gw: &Vec<[[f64; 2]; 2]>,
+        b_gw: &mut Vec<[f64; 2]>,
     ) {
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let pi = &ms.model.pi;
-
-        // Cacluating Beta
-        ///////////////////////////////////////
+        let nsites = end_chr - start_chr;
+        let a_chr = &a_gw[start_chr..end_chr];
+        let b_chr = &mut b_gw[start_chr..end_chr];
 
         // init beta
-        let last = end_chr - start_chr - 1;
-        cv.beta[0][last] = 1.0;
-        cv.beta[1][last] = 1.0;
+        // Rabiner's Eq 24
+        cv.beta[0][nsites - 1] = 1.0;
+        cv.beta[1][nsites - 1] = 1.0;
         // induction
-        for isnp in (start_chr..end_chr).rev().skip(1) {
-            let snp_ind = isnp - start_chr;
-            let mut sv = PerSnpModelVariables::new();
+        for t in (0..nsites - 1).rev() {
+            // let mut sv = PerSnpModelVariables::new();
+            let a = a_chr[t];
+            let b = b_chr[t + 1];
 
-            // let ptrans = ms.model.k_rec * args.rec_rate * (pos[isnp + 1] - pos[isnp]) as f64;
-            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
-            sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
-            sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
-            sv.a[0][0] = 1.0 - sv.a[0][1];
-            sv.a[1][1] = 1.0 - sv.a[1][0];
-
+            // Rabiner's Eq 25
             let mut sum = [0.0, 0.0];
-            for (is, js) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
-                sum[is] += cv.beta[js][snp_ind + 1] * sv.a[is][js] * cv.b[js][snp_ind + 1];
+            for (i_i, i_o) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                sum[i_i] += cv.beta[i_o][t + 1] * a[i_i][i_o] * b[i_o];
             }
-            cv.beta[0][snp_ind] = sum[0] / cv.scale[snp_ind];
-            cv.beta[1][snp_ind] = sum[1] / cv.scale[snp_ind];
-
-            // println!(
-            //     "snp_ind={snp_ind}\tpos={}\tbeta0={:.4}\tbeta1={:.4}",
-            //     pos[isnp], cv.beta[0][snp_ind], cv.beta[1][snp_ind]
-            // )
+            cv.beta[0][t] = sum[0] / cv.scale[t];
+            cv.beta[1][t] = sum[1] / cv.scale[t];
         }
     }
+    /// backtracking (finding traj/q sequence)
     pub fn run_over_snp_3_back(&self, chrid: usize, cv: &mut PerChrModelVariables) {
-        // backtracking
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        // let pos = self.data.sites.get_pos_slice();
-        // let gw_chr_start = self.data.genome.get_gwchrstarts()[chrid];
+        let nsites = end_chr - start_chr;
 
-        let last_snp = end_chr - start_chr - 1;
-        let mut max = cv.traj[last_snp] as usize;
-        // println!("last_snp max: {}", max);
-        for isnp in (start_chr..end_chr).rev().skip(1) {
-            let snp_ind = isnp - start_chr;
-            cv.traj[snp_ind] = cv.psi[max][snp_ind + 1];
-            max = cv.traj[snp_ind] as usize;
-            // println!(
-            //     "snp_ind={snp_ind}\tpos={}\ttraj={}",
-            //     pos[isnp] - gw_chr_start,
-            //     cv.traj[snp_ind]
-            // )
+        // Rabiner's Eq 35
+        let mut max = cv.traj[nsites - 1] as usize;
+        for t in (0..nsites - 1).rev() {
+            cv.traj[t] = cv.psi[max][t + 1];
+            max = cv.traj[t] as usize;
         }
     }
 
     pub fn run_over_snp_4_fwd(
         &self,
         chrid: usize,
-        ms: &mut ModelParamState,
+        // ms: &ModelParamState,
         rs: &mut RunningStats,
-        cv: &mut PerChrModelVariables,
+        cv: &PerChrModelVariables,
+        a_gw: &Vec<[[f64; 2]; 2]>,
+        b_gw: &mut Vec<[f64; 2]>,
     ) {
-        let pos = self.data.sites.get_pos_slice();
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
-        let pi = &ms.model.pi;
+        let pos = &self.data.sites.get_pos_slice()[start_chr..end_chr];
+        let nsites = end_chr - start_chr;
         let mut sv = PerSnpModelVariables::new();
+        let a_chr = &a_gw[start_chr..end_chr];
+        let b_chr = &b_gw[start_chr..end_chr];
 
-        for (snp_ind, isnp) in (start_chr..end_chr).enumerate() {
-            let mut p_ibd = cv.alpha[0][snp_ind] * cv.beta[0][snp_ind];
-            let p_dbd = cv.alpha[1][snp_ind] * cv.beta[1][snp_ind];
+        for t in 0..nsites {
+            // gamma => Rabiner's Eq 28
+            let mut p_ibd = cv.alpha[0][t] * cv.beta[0][t];
+            let p_dbd = cv.alpha[1][t] * cv.beta[1][t];
             p_ibd = p_ibd / (p_ibd + p_dbd);
 
+            // Part of Schaffner's Additional File 1: model update via Baum-Welch
+            // Similar to Rabiner's Eq 39a and 40a, also related to Eq 43a
             rs.count_ibd_fb += p_ibd;
             rs.count_dbd_fb += 1.0 - p_ibd;
 
             // not the last snp for following code
-            if snp_ind == end_chr - start_chr - 1 {
+            if t == nsites - 1 {
                 break;
             }
 
-            let delpos = (pos[isnp + 1] - pos[isnp]) as f64;
-            // let ptrans = ms.model.k_rec * args.rec_rate * delpos;
-            let ptrans = ms.model.k_rec * (cm[isnp + 1] - cm[isnp]) as f64 / 100.0;
-
-            sv.a[0][1] = 1.0 - pi[0] - (1.0 - pi[0]) * (-ptrans).exp();
-            sv.a[1][0] = 1.0 - pi[1] - (1.0 - pi[1]) * (-ptrans).exp();
-            sv.a[0][0] = 1.0 - sv.a[0][1];
-            sv.a[1][1] = 1.0 - sv.a[1][0];
-
+            let a = a_chr[t];
+            // Rabiner's Eq 37
+            let b = b_chr[t + 1];
             let mut xisum = 0.0;
-            for (is, js) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
-                sv.xi[is][js] = cv.alpha[is][snp_ind]
-                    * sv.a[is][js]
-                    * cv.b[js][snp_ind + 1]
-                    * cv.beta[js][snp_ind + 1];
-                xisum += sv.xi[is][js];
+            for (i_i, i_o) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+                sv.xi[i_i][i_o] = cv.alpha[i_i][t] * a[i_i][i_o] * b[i_o] * cv.beta[i_o][t + 1];
+                xisum += sv.xi[i_i][i_o];
             }
             for (is, js) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
                 sv.xi[is][js] /= xisum;
             }
+
+            // Rabiner's Eq 38
             sv.gamma[0] = sv.xi[0][1] + sv.xi[0][0];
             sv.gamma[1] = sv.xi[1][1] + sv.xi[1][0];
 
-            // println!("snp_ind={snp_ind}\tpos={}\tdelpos={delpos:.0}\txi={:.3},{:.3},{:.3},{:.3}\tgamma={:.3},{:.3}\ta01/10={:.6},{:.6}",
-            //     pos[isnp] - self.data.genome.get_gwchrstarts()[chrid],
-            //     sv.xi[0][0],
-            //     sv.xi[0][1],
-            //     sv.xi[1][0],
-            //     sv.xi[1][1],
-            //     sv.gamma[0],
-            //     sv.gamma[1],
-            //     sv.a[0][1],
-            //     sv.a[1][0],
-            // );
-
+            let delpos = (pos[t + 1] - pos[t]) as f64;
             rs.seq_ibd_fb += delpos * sv.xi[0][0];
             rs.seq_dbd_fb += delpos * sv.xi[1][1];
+
+            // Part of Schaffner's Additional File 1: model update via Baum-Welch
+            // Also similar to Rabiner's 40b (trans_obs) and 40c (trans_pred)
             rs.trans_obs += sv.xi[0][1] + sv.xi[1][0];
-            rs.trans_pred += sv.gamma[0] * sv.a[0][1] + sv.gamma[1] * sv.a[1][0];
+            rs.trans_pred += sv.gamma[0] * a[0][1] + sv.gamma[1] * a[1][0];
         }
     }
 
@@ -411,98 +388,85 @@ impl<'a> HmmRunner<'a> {
         out: &mut OutputBuffer<'a>,
         ms: &ModelParamState,
     ) {
+        // if no useful sites, no segment generated
         if cv.nsites == 0 {
             return;
         }
         // skip if too old
         if let Some(max_tmrca) = self.data.args.filt_max_tmrca {
-            let tmrca = ms.model.k_rec;
-            if tmrca > max_tmrca {
+            if ms.model.k_rec > max_tmrca {
                 return;
             }
         }
-        let pos = self.data.sites.get_pos_slice();
-        let cm = self.data.sites.get_pos_cm_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
+        let pos = &self.data.sites.get_pos_slice()[start_chr..end_chr];
+        let cm = &self.data.sites.get_pos_cm_slice()[start_chr..end_chr];
+        let nsites = end_chr - start_chr;
 
         let chrname = self.data.genome.get_chrname(chrid);
         let sample1 = &self.data.samples.v()[pair.0];
         let sample2 = &self.data.samples.v()[pair.1];
-        let gw_chr_starts = self.data.genome.get_gwchrstarts()[chrid];
+        let gw_chr_start_bp = self.data.genome.get_gwchrstarts()[chrid];
 
-        let mut start_snp = 0;
+        let mut t_seg_start = 0;
         let mut add_seq;
         //
         //      |-----|==========|-------|===========|
         //          start       -1 \isnp
-        for (isnp, ipos) in (start_chr..end_chr).enumerate().skip(1) {
-            if cv.traj[isnp] == cv.traj[isnp - 1] {
+        for t in 1..nsites {
+            if cv.traj[t] == cv.traj[t - 1] {
                 continue;
             }
-
             rs.ntrans += 1;
 
-            add_seq = (pos[ipos - 1] - pos[start_chr + start_snp] + 1) as f64;
-            match cv.traj[isnp - 1] == 0 {
+            add_seq = (pos[t - 1] - pos[t_seg_start] + 1) as f64;
+            match cv.traj[t - 1] == 0 {
                 true => rs.seq_ibd += add_seq,
                 false => rs.seq_dbd += add_seq,
             };
             // print
-            let start_pos = pos[start_chr + start_snp] - gw_chr_starts;
-            let end_pos = pos[start_chr + isnp - 1] - gw_chr_starts;
-            let ibd = cv.traj[isnp - 1];
-            let n_snp = isnp - start_snp;
+            let ibd = cv.traj[t - 1];
             let seg = SegRecord {
                 sample1,
                 sample2,
                 chrname,
-                start_pos,
-                end_pos,
+                start_pos: pos[t_seg_start] - gw_chr_start_bp,
+                end_pos: pos[t - 1] - gw_chr_start_bp,
                 ibd,
-                n_snp,
+                n_snp: t - t_seg_start,
             };
 
             if self.data.args.filt_ibd_only && (ibd == 1) {
-                start_snp = isnp;
+                t_seg_start = t;
                 continue;
             }
 
             // skip if too short
             if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
-                let cm = cm[start_chr + isnp - 1] - cm[start_chr + start_snp];
+                let cm = cm[t - 1] - cm[t_seg_start];
                 if cm < min_seg_cm as f64 {
-                    start_snp = isnp;
+                    t_seg_start = t;
                     continue;
                 }
             }
             out.add_seg(seg);
-            // write!(
-            //     &mut out.seg_file,
-            //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-            // )
-            // .unwrap();
-            // // write!(&mut out.seg_file, "{:?}", cv.traj).unwrap();
-
-            start_snp = isnp;
+            t_seg_start = t;
         }
-        //
-        let isnp = end_chr - start_chr - 1;
-        let start_pos = pos[start_chr + start_snp] - gw_chr_starts;
-        let end_pos = pos[end_chr - 1] - gw_chr_starts;
-        add_seq = (end_pos - start_pos + 1) as f64;
-        let ibd = cv.traj[isnp];
-        let n_snp = isnp - start_snp + 1;
+        // Process the "hanging" segments
+        add_seq = (nsites + 1) as f64;
+        let ibd = cv.traj[nsites - 1];
         match ibd == 0 {
             true => rs.seq_ibd += add_seq,
             false => rs.seq_dbd += add_seq,
         };
+
+        // if output IBD only and segment is not IBD
         if self.data.args.filt_ibd_only && (ibd == 1) {
             return;
         }
-
         // skip if too short
         if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
-            let cm = cm[end_chr - 1] - cm[start_chr + start_snp];
+            let cm = cm[nsites - 1] - cm[t_seg_start];
             if cm < min_seg_cm as f64 {
                 return;
             }
@@ -511,17 +475,12 @@ impl<'a> HmmRunner<'a> {
             sample1,
             sample2,
             chrname,
-            start_pos,
-            end_pos,
+            start_pos: pos[t_seg_start] - gw_chr_start_bp,
+            end_pos: pos[nsites - 1] - gw_chr_start_bp,
             ibd,
-            n_snp,
+            n_snp: nsites - 1 - t_seg_start + 1,
         };
         out.add_seg(seg);
-        // write!(
-        //     &mut out.seg_file,
-        //     "{sample1}\t{sample2}\t{chrname}\t{start_pos}\t{end_pos}\t{ibd}\t{n_snp}\n"
-        // )
-        // .unwrap();
     }
 
     pub fn tabulate_sites_by_state_for_viterbi_traj(
@@ -530,11 +489,10 @@ impl<'a> HmmRunner<'a> {
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
     ) {
-        // let pos = self.data.sites.get_pos_slice();
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
 
-        for (isnp, _) in (start_chr..end_chr).enumerate() {
-            match cv.traj[isnp] == 0 {
+        for (t, _) in (start_chr..end_chr).enumerate() {
+            match cv.traj[t] == 0 {
                 true => rs.count_ibd_vit += 1,
                 false => rs.count_dbd_vit += 1,
             }
@@ -549,13 +507,15 @@ impl<'a> HmmRunner<'a> {
         }
 
         // reestimate parameters
+        //
+        // Part of Schaffner's Additional File 1: model update via Baum-Welch;
+        // trans_obs/pred: similar to Rabiner's 40b and 40c ;
+        // count_ibd_fb/count_ibd_fb: Similar to Rabiner's Eq 39a and 40a, also
+        // related to Eq 43a );
         pi[0] = rs.count_ibd_fb / (rs.count_ibd_fb + rs.count_dbd_fb);
         ms.model.k_rec *= rs.trans_obs / rs.trans_pred;
-        // println!(
-        //     "trans_obs={:0.5}, trans_pred={:.5}",
-        //     rs.trans_obs, rs.trans_pred,
-        // );
-        // assert!(!ms.model.k_rec.is_nan());
+
+        // cap k_rec
         if ms.model.k_rec > self.data.args.k_rec_max {
             ms.model.k_rec = self.data.args.k_rec_max;
         }
@@ -572,13 +532,11 @@ impl<'a> HmmRunner<'a> {
                 ms.model.k_rec = 1e-5;
             }
         }
-
         pi[1] = 1.0 - pi[0];
 
         // calculate delta
         let delpi = pi[0] - ms.last_model.pi[0];
         let delk = ms.model.k_rec - ms.last_model.k_rec;
-        // let delprob = ms.model.max_phi - ms.last_model.max_phi;
         let delrelk = delk / ms.model.k_rec;
 
         // update last model
@@ -590,10 +548,6 @@ impl<'a> HmmRunner<'a> {
         {
             ms.finish_fit = true;
         }
-        // println!(
-        //     "iter={}\tk_rec={:.4}\tpi=[0]={:.4}\tmax_phi={:.4}\tfinish_fit={}\tcount_ibd_fb={:.3}\tcount_dbd_fb={:.3}\ttrans_obs={:.3}\ttrans_pred={:.3}",
-        //     ms.iiter, ms.model.k_rec, ms.model.pi[0], ms.model.max_phi, ms.finish_fit, rs.count_ibd_fb, rs.count_dbd_fb, rs.trans_obs, rs.trans_pred
-        // );
     }
     pub fn print_hmm_frac(
         &self,
@@ -630,13 +584,6 @@ impl<'a> HmmRunner<'a> {
             count_ibd_vit_ratio,
         };
         out.add_frac(frac);
-
-        // use std::io::Write;
-        // write!(
-        //     &mut out.frac_file,
-        //     "{sample1}\t{sample2}\t{sum}\t{discord:.4}\t{max_phi:0.5e}\t{iter}\t{k_rec:.3}\t{ntrans}\t{seq_ibd_ratio:.5}\t{count_ibd_fb_ratio:.5}\t{count_ibd_vit_ratio:.5}\n"
-        // )
-        // .unwrap();
     }
 }
 
@@ -690,15 +637,154 @@ fn test_hmm() {
     use crate::data::OutputFiles;
     let args = Arguments::new_for_test();
 
-    let out = OutputFiles::new_from_args(&args, None, None);
     let input = InputData::from_args(&args);
 
     let runner = HmmRunner::new(&input);
 
-    for pair in input.pairs.iter().take(2) {
-        let pair = (pair.0 as usize, pair.1 as usize);
-        let mut out = OutputBuffer::new(&out, 1, 1);
-        runner.run_hmm_on_pair(pair, &mut out, false);
+    {
+        let out = OutputFiles::new_from_args(&args, None, None);
+        let mut a = vec![];
+        let mut b = vec![];
+        for pair in input.pairs.iter() {
+            let pair = (pair.0 as usize, pair.1 as usize);
+            let mut out = OutputBuffer::new(&out, 1, 1);
+            runner.run_hmm_on_pair(pair, &mut a, &mut b, &mut out, false);
+            out.flush_frac();
+            out.flush_segs();
+        }
+    }
+
+    // run hmmibd
+    use std::process::{Command, Stdio};
+    if !std::path::Path::new("hmmIBD").exists() {
+        if !std::path::Path::new("hmmIBD.c").exists() {
+            eprintln!("./hmmIBD or ./hmmIBD.c can be found in current folder");
+            std::process::exit(-1);
+        }
+        Command::new("gcc")
+            .args(["hmmIBD.c", "-lm", "-O2", "-o", "hmmIBD"])
+            .status()
+            .unwrap();
+    }
+    Command::new("./hmmIBD")
+        .args([
+            "-i",
+            "samp_data/pf3k_Cambodia_13.txt",
+            "-I",
+            "samp_data/pf3k_Ghana_13.txt",
+            "-f",
+            "samp_data/freqs_pf3k_Cambodia_13.txt",
+            "-F",
+            "samp_data/freqs_pf3k_Ghana_13.txt",
+            "-o",
+            "tmp_hmmibd",
+        ])
+        .stdout(Stdio::null())
+        .status()
+        .unwrap();
+
+    // load data from hmmibd-rs results
+    {
+        use std::collections::HashMap;
+        #[derive(Default, Eq, PartialEq, PartialOrd, Ord, Debug)]
+        struct Seg {
+            sample1: u32,
+            sample2: u32,
+            chr: u32,
+            start: u32,
+            end: u32,
+            different: u32,
+            nsnp: u32,
+        }
+        fn load_data_from_hmm_seg_res(
+            path: &str,
+            sample_name_map: &HashMap<String, u32>,
+        ) -> Vec<Seg> {
+            let mut res = vec![];
+            for line in std::fs::read_to_string(path)
+                .unwrap()
+                .trim()
+                .split("\n")
+                .skip(1)
+            {
+                let mut seg = Seg::default();
+                for (ifield, field) in line.split("\t").enumerate() {
+                    match ifield {
+                        0 => seg.sample1 = sample_name_map[field],
+                        1 => seg.sample2 = sample_name_map[field],
+                        2 => seg.chr = field.parse::<u32>().unwrap(),
+                        3 => seg.start = field.parse::<u32>().unwrap(),
+                        4 => seg.end = field.parse::<u32>().unwrap(),
+                        5 => seg.different = field.parse::<u32>().unwrap(),
+                        6 => seg.nsnp = field.parse::<u32>().unwrap(),
+                        _ => {}
+                    }
+                }
+                res.push(seg);
+                res.sort();
+            }
+            res
+        }
+
+        #[derive(Default, PartialEq, PartialOrd, Debug)]
+        struct Frac {
+            pub sample1: u32,
+            pub sample2: u32,
+            pub num_info_sites: u32,
+            pub discord: f64,
+            pub max_phi: f64,
+            pub iter: u32,
+            pub k_rec: f64,
+            pub ntrans: u32,
+            pub seq_ibd_ratio: f64,
+            pub count_ibd_fb_ratio: f64,
+            pub count_ibd_vit_ratio: f64,
+        }
+
+        fn load_data_from_hmm_frac_res(
+            path: &str,
+            sample_name_map: &HashMap<String, u32>,
+        ) -> Vec<Frac> {
+            let mut res = vec![];
+            for line in std::fs::read_to_string(path)
+                .unwrap()
+                .trim()
+                .split("\n")
+                .skip(1)
+            {
+                let mut frac = Frac::default();
+                for (ifield, field) in line.split("\t").enumerate() {
+                    match ifield {
+                        0 => frac.sample1 = sample_name_map[field],
+                        1 => frac.sample2 = sample_name_map[field],
+                        2 => frac.num_info_sites = field.parse::<u32>().unwrap(),
+                        3 => frac.discord = field.parse::<f64>().unwrap(),
+                        4 => frac.max_phi = field.parse::<f64>().unwrap(),
+                        5 => frac.iter = field.parse::<u32>().unwrap(),
+                        6 => frac.k_rec = field.parse::<f64>().unwrap(),
+                        7 => frac.ntrans = field.parse::<u32>().unwrap(),
+                        8 => frac.seq_ibd_ratio = field.parse::<f64>().unwrap(),
+                        9 => frac.count_ibd_fb_ratio = field.parse::<f64>().unwrap(),
+                        10 => frac.count_ibd_vit_ratio = field.parse::<f64>().unwrap(),
+                        _ => {}
+                    }
+                }
+                res.push(frac);
+                res.sort_by(|a, b| a.partial_cmp(&b).unwrap());
+            }
+            res
+        }
+
+        let sample_name_map = input.samples.m();
+
+        assert_eq!(
+            load_data_from_hmm_seg_res("tmp_hmmibdrs.hmm.txt", sample_name_map),
+            load_data_from_hmm_seg_res("tmp_hmmibd.hmm.txt", sample_name_map)
+        );
+        assert_eq!(
+            load_data_from_hmm_frac_res("tmp_hmmibdrs.hmm.txt", sample_name_map),
+            load_data_from_hmm_frac_res("tmp_hmmibd.hmm.txt", sample_name_map)
+        );
     }
 }
 

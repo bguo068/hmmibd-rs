@@ -167,7 +167,7 @@ impl Arguments {
             bad_file: None,
             good_file: None,
             k_rec_max: f64::MAX,
-            output: None,
+            output: Some("tmp_hmmibdrs".into()),
             suppress_frac: false,
             buffer_size_segments: Some(1000000),
             buffer_size_frac: Some(10000),
