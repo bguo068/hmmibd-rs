@@ -799,9 +799,11 @@ fn test_hmm_with_bcf() {
 
     let runner = HmmRunner::new(&input);
 
+    let mut a = vec![];
+    let mut b = vec![];
     for pair in input.pairs.iter().take(2) {
         let pair = (pair.0 as usize, pair.1 as usize);
         let mut out = OutputBuffer::new(&out, 1, 1);
-        runner.run_hmm_on_pair(pair, &mut out, false);
+        runner.run_hmm_on_pair(pair, &mut a, &mut b, &mut out, false);
     }
 }
