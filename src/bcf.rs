@@ -19,13 +19,30 @@ pub struct DominantGenotypeArgs {
     pub nonmissing_rates: Vec<(f32, f32)>,
 }
 
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("bcf reader error: {0:?}")]
+    BcfReaderError(#[from] bcf_reader::Error),
+
+    #[error("io error: {0:?}")]
+    Io(#[from] std::io::Error),
+
+    #[error("toml deserialize error: {0:?}")]
+    TomlDeserializeError(#[from] toml::de::Error),
+
+    #[error("Dominant genotype is empty: {file}:{line}")]
+    DominantGenotypeEmpty { file: &'static str, line: u32 },
+}
+
 impl DominantGenotypeArgs {
-    pub fn new_from_toml_file(dom_gt_config_path: &str) -> Self {
-        let toml_str = std::fs::read_to_string(dom_gt_config_path).unwrap();
-        let dga: DominantGenotypeArgs = toml::from_str(&toml_str).unwrap();
-        dga
+    pub fn new_from_toml_file(dom_gt_config_path: &str) -> Result<Self> {
+        let toml_str = std::fs::read_to_string(dom_gt_config_path)?;
+        let dga: DominantGenotypeArgs = toml::from_str(&toml_str)?;
+        Ok(dga)
     }
-    pub fn new_from_builtin() -> Self {
+    pub fn new_from_builtin() -> Result<Self> {
         let toml_str = r#"
 min_depth = 5
 min_ratio = 0.7
@@ -59,8 +76,8 @@ nonmissing_rates= [
  ]
     "#;
 
-        let dga: DominantGenotypeArgs = toml::from_str(&toml_str).unwrap();
-        dga
+        let dga: DominantGenotypeArgs = toml::from_str(toml_str)?;
+        Ok(dga)
     }
 }
 
@@ -91,9 +108,10 @@ impl DominantGenotype {
             args: bcffilter_args.clone(),
         }
     }
-    fn read_dom(&mut self, bcf_fname: impl AsRef<std::path::Path>) -> Header {
-        let mut reader = smart_reader(bcf_fname.as_ref());
-        let header = Header::from_string(&read_header(&mut reader));
+    fn read_dom(&mut self, bcf_fname: impl AsRef<std::path::Path>) -> Result<Header> {
+        let mut reader = smart_reader(bcf_fname.as_ref())?;
+        let header = Header::from_string(&read_header(&mut reader)?)
+            .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
         let mut record = Record::default();
         let ad_key = header.get_idx_from_dictionary_str("FORMAT", "AD").unwrap();
         let nsam = header.get_samples().len();
@@ -110,7 +128,7 @@ impl DominantGenotype {
         let mut nvalid = 0;
 
         let mut indv_ad = Vec::<(usize, u32)>::new(); // (allele_idx, ad)
-        while let Ok(_) = record.read(&mut reader) {
+        while record.read(&mut reader).is_ok() {
             let nallele = record.n_allele() as usize;
 
             // not segrating
@@ -124,9 +142,17 @@ impl DominantGenotype {
 
             let mut site_nonmiss_counter = 0;
             let chunks = record.fmt_field(ad_key).chunks(record.n_allele() as usize);
-            for nv_indv in chunks.into_iter() {
+            for mut nv_indv in chunks.into_iter() {
                 indv_ad.clear();
-                indv_ad.extend(nv_indv.map(|nv| nv.int_val().unwrap()).enumerate());
+                nv_indv.try_for_each(|nv_res| -> Result<()> {
+                    let val = nv_res?
+                        .int_val()
+                        .ok_or(bcf_reader::Error::NumericaValueEmptyInt)?;
+                    let idx = indv_ad.len();
+                    indv_ad.push((idx, val));
+                    Ok(())
+                })?;
+                // indv_ad.extend(nv_indv.map(|nv| nv?.int_val().unwrap()).enumerate());
                 indv_ad.sort_by_key(|x| u32::MAX - x.1);
                 let mut dom_allele = -1i8;
                 let total = indv_ad.iter().map(|x| x.1).sum::<u32>();
@@ -161,7 +187,7 @@ impl DominantGenotype {
         }
         self.selected_samples.extend(0..self.sample_vec.len());
         self.selected_sites.extend(0..self.pos_vec.len());
-        header
+        Ok(header)
     }
 
     fn filter_by_missingness(&mut self, site_nonmissing_rate: f32, sample_nonmissing_rate: f32) {
@@ -174,7 +200,7 @@ impl DominantGenotype {
         let mut new_good_sites = vec![];
         for row in sites.iter() {
             let mut cnt = 0;
-            for (_icol, col) in samples.iter().enumerate() {
+            for col in samples.iter() {
                 if self.dom_vec[*row * self.nsam + col] != -1 {
                     cnt += 1;
                 };
@@ -209,7 +235,7 @@ impl DominantGenotype {
         let mut cnt = 0;
         let mut cnt2 = 0;
         for row in self.selected_sites.iter() {
-            for (_icol, col) in self.selected_samples.iter().enumerate() {
+            for col in self.selected_samples.iter() {
                 if self.dom_vec[*row * self.nsam + col] != -1 {
                     cnt += 1;
                 };
@@ -253,6 +279,36 @@ impl DominantGenotype {
         new_dg.chrname_map = self.chrname_map.clone();
 
         new_dg
+    }
+
+    pub fn new_from_processing_bcf(
+        dgt_args: &DominantGenotypeArgs,
+        bcf_path: impl AsRef<std::path::Path>,
+    ) -> Result<Self> {
+        let mut dg = Self::new(dgt_args);
+        dg.read_dom(bcf_path)?;
+
+        println!(
+            "before filteing: n good site = {}, n good samples = {}",
+            dg.selected_sites.len(),
+            dg.selected_samples.len()
+        );
+
+        let rates = dg.args.nonmissing_rates.clone();
+        for (min_site_nonmiss_rate, min_sample_nonmiss_rate) in rates {
+            dg.filter_by_missingness(min_site_nonmiss_rate, min_sample_nonmiss_rate);
+            let overall_nonmiss = dg.calc_nonmiss();
+            println!(
+                "min_site_nonmiss={:.3}, min_sam_nonmiss={:.3}, nsite_left = {:>6}, nsam_left={:>6}, overall_call_target_sites_samples={:.3}",
+                min_site_nonmiss_rate,
+                min_sample_nonmiss_rate,
+                dg.selected_sites.len(),
+                dg.selected_samples.len(),
+                overall_nonmiss,
+            );
+        }
+
+        Ok(dg.consolidate())
     }
 
     pub fn get_samples(&self) -> &[String] {
@@ -343,32 +399,32 @@ impl DominantGenotype {
     }
 }
 
-pub fn get_dominant_geotype(
-    dgt_args: &DominantGenotypeArgs,
-    bcf_path: impl AsRef<std::path::Path>,
-) -> DominantGenotype {
-    let mut dg = DominantGenotype::new(dgt_args);
-    dg.read_dom(bcf_path);
+// pub fn get_dominant_geotype(
+//     dgt_args: &DominantGenotypeArgs,
+//     bcf_path: impl AsRef<std::path::Path>,
+// ) -> DominantGenotype {
+//     let mut dg = DominantGenotype::new(dgt_args);
+//     dg.read_dom(bcf_path);
 
-    println!(
-        "before filteing: n good site = {}, n good samples = {}",
-        dg.selected_sites.len(),
-        dg.selected_samples.len()
-    );
+//     println!(
+//         "before filteing: n good site = {}, n good samples = {}",
+//         dg.selected_sites.len(),
+//         dg.selected_samples.len()
+//     );
 
-    let rates = dg.args.nonmissing_rates.clone();
-    for (min_site_nonmiss_rate, min_sample_nonmiss_rate) in rates {
-        dg.filter_by_missingness(min_site_nonmiss_rate, min_sample_nonmiss_rate);
-        let overall_nonmiss = dg.calc_nonmiss();
-        println!(
-            "min_site_nonmiss={:.3}, min_sam_nonmiss={:.3}, nsite_left = {:>6}, nsam_left={:>6}, overall_call_target_sites_samples={:.3}",
-            min_site_nonmiss_rate,
-            min_sample_nonmiss_rate,
-            dg.selected_sites.len(),
-            dg.selected_samples.len(),
-            overall_nonmiss,
-        );
-    }
+//     let rates = dg.args.nonmissing_rates.clone();
+//     for (min_site_nonmiss_rate, min_sample_nonmiss_rate) in rates {
+//         dg.filter_by_missingness(min_site_nonmiss_rate, min_sample_nonmiss_rate);
+//         let overall_nonmiss = dg.calc_nonmiss();
+//         println!(
+//             "min_site_nonmiss={:.3}, min_sam_nonmiss={:.3}, nsite_left = {:>6}, nsam_left={:>6}, overall_call_target_sites_samples={:.3}",
+//             min_site_nonmiss_rate,
+//             min_sample_nonmiss_rate,
+//             dg.selected_sites.len(),
+//             dg.selected_samples.len(),
+//             overall_nonmiss,
+//         );
+//     }
 
-    dg.consolidate()
-}
+//     dg.consolidate()
+// }

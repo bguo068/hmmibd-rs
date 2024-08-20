@@ -6,13 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bcf_reader = "0.1.2"
+anstyle = "1.0.8"
+anyhow = { version = "1.0.86", features = ["backtrace"] }
+bcf_reader = "0.3.0"
 clap = { version = "4.3.4", features = ["derive", "wrap_help"] }
 csv = "1.2.2"
 itertools = "0.12.1"
 rayon = "1.7.0"
 serde = { version = "1.0.164", features = ["derive"] }
 smallvec = "1.13.1"
+thiserror = "1.0.63"
 toml = "0.7.5"
 
 [dev-dependencies]

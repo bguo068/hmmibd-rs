@@ -1,7 +1,7 @@
 use clap::{Args, Parser};
 
 #[derive(Parser, Debug, Clone)]
-#[command(author, version, about, long_about, name = "hmmibd2")]
+#[command(author, version, about, long_about, name = "hmmibd-rs", color=clap::ColorChoice::Always, styles=get_styles())]
 pub struct Arguments {
     /// File of genotype data.
     /// Format for genotype file: tab-delimited text file, with one single
@@ -241,4 +241,42 @@ pub struct RecombinationArg {
     ///  When used --rec-rate should not be specified.
     #[arg(long)]
     pub genome: Option<String>,
+}
+
+pub fn get_styles() -> clap::builder::Styles {
+    clap::builder::Styles::styled()
+        .usage(
+            anstyle::Style::new()
+                .bold()
+                .underline()
+                .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Yellow))),
+        )
+        .header(
+            anstyle::Style::new()
+                .bold()
+                .underline()
+                .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Yellow))),
+        )
+        .literal(
+            anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Green))),
+        )
+        .invalid(
+            anstyle::Style::new()
+                .bold()
+                .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Red))),
+        )
+        .error(
+            anstyle::Style::new()
+                .bold()
+                .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Red))),
+        )
+        .valid(
+            anstyle::Style::new()
+                .bold()
+                .underline()
+                .fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::Green))),
+        )
+        .placeholder(
+            anstyle::Style::new().fg_color(Some(anstyle::Color::Ansi(anstyle::AnsiColor::White))),
+        )
 }

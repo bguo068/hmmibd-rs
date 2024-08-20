@@ -138,7 +138,7 @@ where
 
     pub fn get_row_iter(&self, row: usize) -> impl Iterator<Item = Option<T>> + '_ {
         self.data[(row * self.ncols)..((row + 1) * self.ncols)]
-            .into_iter()
+            .iter()
             .map(|x| x.as_option())
     }
 

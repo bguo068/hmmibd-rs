@@ -9,12 +9,57 @@ use std::{
 
 use crate::{
     args::Arguments,
-    bcf::{get_dominant_geotype, DominantGenotype, DominantGenotypeArgs},
-    genome::*,
+    bcf::{self, DominantGenotype, DominantGenotypeArgs},
+    genome::Genome,
     matrix::*,
-    samples::Samples,
-    sites::{SiteInfoRaw, Sites},
+    samples::{self, Samples},
+    sites::{self, SiteInfoRaw, Sites},
 };
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("error in processing bcf file: {0:#?}")]
+    Bcf(#[from] crate::bcf::Error),
+    #[error("io error, source {source:?}, file: {file:?}")]
+    Io {
+        source: std::io::Error,
+        file: Option<String>,
+    },
+    // #[error("custom: {0:?}")]
+    // Custom(String),
+    #[error("{0:?}")]
+    ParseLineError(#[from] ParseLineError),
+    #[error("irow={irow}, iallele={iallele}, value={value:?}")]
+    MissingFrequency {
+        irow: usize,
+        iallele: usize,
+        value: Option<f64>,
+    },
+    #[error("EmptyIterator")]
+    EmptyIterator,
+
+    #[error("lockerror: {0}")]
+    LockError(&'static str),
+
+    #[error("sites error: {0:?}")]
+    Site(#[from] sites::Error),
+
+    #[error("sample error: {0:?}")]
+    Sample(#[from] samples::Error),
+
+    #[error("sample error: {0:?}")]
+    PartialCmpIsNone(&'static str),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ParseLineError {
+    #[error("Cannot read column {0}")]
+    ReadColumnError(&'static str),
+    #[error("Cannot parse column {0}")]
+    ParseColumnError(&'static str),
+    #[error("Cannot read line")]
+    ReadLineError,
+}
 
 pub struct InputData {
     /// arguments
@@ -55,21 +100,21 @@ impl InputData {
             for i in 0..num_chunk1 {
                 for j in 0..num_chunk2 {
                     let j = num_chunk1 + j;
-                    chunk_pairs.push((i as u32, j as u32));
+                    chunk_pairs.push((i, j));
                 }
             }
         } else {
             // same population
             for i in 0..num_chunk1 {
                 for j in i..num_chunk1 {
-                    chunk_pairs.push((i as u32, j as u32));
+                    chunk_pairs.push((i, j));
                 }
             }
         }
         chunk_pairs
     }
 
-    pub fn clone_inputdata_for_chunkpair(&self, chunkpair: (u32, u32)) -> Self {
+    pub fn clone_inputdata_for_chunkpair(&self, chunkpair: (u32, u32)) -> Result<Self, Error> {
         let (ichunk, jchunk) = chunkpair;
 
         // num of chunks for samples.s1()
@@ -153,8 +198,8 @@ impl InputData {
         };
         let sites = self.sites.clone();
         let genome = self.genome.clone();
-        let pairs = Self::get_valid_pair_file(&args, &samples);
-        Self {
+        let pairs = Self::get_valid_pair_file(&args, &samples)?;
+        Ok(Self {
             args,
             geno,
             nall,
@@ -165,66 +210,73 @@ impl InputData {
             genome,
             samples,
             pairs,
-        }
+        })
     }
 
-    pub fn from_args(args: &Arguments) -> Self {
+    pub fn from_args(args: &Arguments) -> Result<Self, Error> {
         let dgt = if args.from_bcf {
             let dga = match args.dom_gt_config.as_ref() {
                 Some(dom_gt_config_path) => {
                     DominantGenotypeArgs::new_from_toml_file(dom_gt_config_path)
                 }
                 None => DominantGenotypeArgs::new_from_builtin(),
-            };
-            let dgt = get_dominant_geotype(&dga, &args.data_file1);
+            }?;
+            let dgt = DominantGenotype::new_from_processing_bcf(&dga, &args.data_file1)?;
             Some(dgt)
         } else {
             None
         };
 
-        let valid_samples = Samples::from_args(&args, dgt.as_ref());
+        let valid_samples = Samples::from_args(args, dgt.as_ref())?;
         let min_snp_sep = args.min_snp_sep;
 
         let (mut geno1, geno2, sitesinfo) = match args.from_bcf {
             true => {
+                let dgt = dgt.ok_or(bcf::Error::DominantGenotypeEmpty {
+                    file: file!(),
+                    line: line!(),
+                })?;
                 let (geno1, sitesinfo) =
-                    Self::read_data_dominant_genotype(dgt.unwrap(), &valid_samples, min_snp_sep);
+                    Self::read_data_dominant_genotype(dgt, &valid_samples, min_snp_sep);
                 (geno1, None, sitesinfo)
             }
             false => {
                 let (geno1, sitesinfo) =
-                    Self::read_data_hmmibd_format(&args.data_file1, &valid_samples, min_snp_sep);
-                let geno2 = args.data_file2.as_ref().map(|data_file2| {
-                    let (geno2, sites2) =
-                        Self::read_data_hmmibd_format(data_file2, &valid_samples, min_snp_sep);
-                    assert_eq!(&sitesinfo, &sites2);
-                    geno2
-                });
+                    Self::read_data_hmmibd_format(&args.data_file1, &valid_samples, min_snp_sep)?;
+                let geno2 = match args.data_file2.as_ref() {
+                    Some(data_file2) => {
+                        let (geno2, sites2) =
+                            Self::read_data_hmmibd_format(data_file2, &valid_samples, min_snp_sep)?;
+                        assert_eq!(&sitesinfo, &sites2);
+                        Some(geno2)
+                    }
+                    None => None,
+                };
                 (geno1, geno2, sitesinfo)
             }
         };
 
         // create the genome object and site object
-        let (sites, genome) = sitesinfo.into_sites_and_genome(&args.rec_args);
+        let (sites, genome) = sitesinfo.into_sites_and_genome(&args.rec_args)?;
 
         let nsam1_valid = geno1.get_ncols();
         let nsam2_valid = geno2.as_ref().map(|geno2| geno2.get_ncols());
         let freq1 = if let Some(freq_file1) = args.freq_file1.as_ref() {
-            Self::read_freq_file(freq_file1, &args, &genome, &sites)
+            Self::read_freq_file(freq_file1, args, &genome, &sites)?
         } else {
-            Self::infer_freq_from_data(&geno1, &sites, &args)
+            Self::infer_freq_from_data(&geno1, &sites, args)
         };
 
         let freq2 = match (geno2.as_ref(), args.freq_file2.as_ref()) {
             (Some(_), Some(freq_file2)) => {
-                Some(Self::read_freq_file(freq_file2, &args, &genome, &sites))
+                Some(Self::read_freq_file(freq_file2, args, &genome, &sites)?)
             }
-            (Some(geno2), None) => Some(Self::infer_freq_from_data(&geno2, &sites, &args)),
+            (Some(geno2), None) => Some(Self::infer_freq_from_data(geno2, &sites, args)),
             _ => None,
         };
-        let pairs = Self::get_valid_pair_file(&args, &valid_samples);
-        let nall = Self::get_nall(&freq1, freq2.as_ref());
-        let majall = Self::get_major_all(&freq1, freq2.as_ref(), nsam1_valid, nsam2_valid);
+        let pairs = Self::get_valid_pair_file(args, &valid_samples)?;
+        let nall = Self::get_nall(&freq1, freq2.as_ref())?;
+        let majall = Self::get_major_all(&freq1, freq2.as_ref(), nsam1_valid, nsam2_valid)?;
 
         // sample oriented
         geno1.transpose();
@@ -233,7 +285,7 @@ impl InputData {
             geno1.merge(&geno2);
         }
 
-        Self {
+        Ok(Self {
             args: args.clone(),
             geno: geno1,
             nall,
@@ -244,7 +296,7 @@ impl InputData {
             sites,
             genome,
             pairs,
-        }
+        })
     }
     // fn read_data_file_with_ginfo_and_gmap(
     //     data_file: impl AsRef<Path>,
@@ -334,16 +386,22 @@ impl InputData {
         data_file: impl AsRef<Path>,
         valid_samples: &Samples,
         min_snp_sep: u32,
-    ) -> (Matrix<u8>, SiteInfoRaw) {
+    ) -> Result<(Matrix<u8>, SiteInfoRaw), Error> {
         let mut siteinfo = SiteInfoRaw::new();
 
         let mut line = String::with_capacity(100000);
         let mut f = std::fs::File::open(data_file.as_ref())
             .map(BufReader::new)
-            .unwrap();
+            .map_err(|source| Error::Io {
+                source,
+                file: Some(data_file.as_ref().to_string_lossy().to_string()),
+            })?;
 
         // get all sample names
-        f.read_line(&mut line).unwrap();
+        f.read_line(&mut line).map_err(|e| Error::Io {
+            source: e,
+            file: None,
+        })?;
         let samples: Vec<_> = line
             .trim()
             .split('\t')
@@ -364,10 +422,20 @@ impl InputData {
         let mut last_chrname = String::new();
         let mut last_pos = 0;
 
-        while f.read_line(&mut line).unwrap() != 0 {
+        while f
+            .read_line(&mut line)
+            .map_err(|source| Error::Io { source, file: None })?
+            != 0
+        {
             let mut fields = line.trim().split("\t");
-            let chrname = fields.next().unwrap();
-            let pos: u32 = fields.next().unwrap().parse().unwrap();
+            let chrname = fields
+                .next()
+                .ok_or(ParseLineError::ReadColumnError("chrname"))?;
+            let pos: u32 = fields
+                .next()
+                .ok_or(ParseLineError::ReadColumnError("pos"))?
+                .parse()
+                .map_err(|_| ParseLineError::ParseColumnError("pos"))?;
 
             // println!("pos: {pos}, last_pos: {last_pos}");
             if chrname == last_chrname {
@@ -395,22 +463,26 @@ impl InputData {
             fields
                 .enumerate()
                 .merge_join_by(valid_sample_col.iter(), |a, b| a.0.cmp(b))
-                .for_each(|mergeby_res| {
+                .try_for_each(|mergeby_res| -> Result<(), Error> {
                     if let EitherOrBoth::Both((_, field), _) = mergeby_res {
-                        let allel = match field.parse::<i8>().unwrap() {
+                        let allel = match field
+                            .parse::<i8>()
+                            .map_err(|_| ParseLineError::ParseColumnError("alleles"))?
+                        {
                             -1 => None,
                             x => Some(x as u8),
                         };
                         geno.push(allel);
                         cnt += 1;
                     }
-                });
+                    Ok(())
+                })?;
             assert_eq!(cnt, n_valid_samples);
             line.clear();
         }
 
         let geno = geno.finish();
-        (geno, siteinfo)
+        Ok((geno, siteinfo))
     }
 
     // fn read_data_file(
@@ -490,10 +562,13 @@ impl InputData {
         args: &Arguments,
         genome: &Genome,
         sites: &Sites,
-    ) -> Matrix<f64> {
+    ) -> Result<Matrix<f64>, Error> {
         let mut f = std::fs::File::open(freq_file.as_ref())
             .map(BufReader::new)
-            .unwrap();
+            .map_err(|source| Error::Io {
+                source,
+                file: Some(freq_file.as_ref().to_string_lossy().to_string()),
+            })?;
 
         let mut freq = MatrixBuilder::<f64>::new(args.max_all as usize);
         let mut v = Vec::new();
@@ -503,10 +578,20 @@ impl InputData {
 
         let mut last_chrname = String::new();
         let mut last_pos = 0;
-        while f.read_line(&mut line).unwrap() != 0 {
+        while f
+            .read_line(&mut line)
+            .map_err(|_| ParseLineError::ReadLineError)?
+            != 0
+        {
             let mut fields = line.trim().split("\t");
-            let chrname = fields.next().unwrap();
-            let pos: u32 = fields.next().unwrap().parse().unwrap();
+            let chrname = fields
+                .next()
+                .ok_or(ParseLineError::ReadColumnError("chrname"))?;
+            let pos: u32 = fields
+                .next()
+                .ok_or(ParseLineError::ReadColumnError("pos"))?
+                .parse()
+                .map_err(|_| ParseLineError::ParseColumnError("pos"))?;
             if (chrname == last_chrname) && (last_pos + args.min_snp_sep > pos) {
                 line.clear();
                 continue;
@@ -521,10 +606,15 @@ impl InputData {
 
             v.clear();
             v.resize(args.max_all as usize, 0.0);
-            fields.enumerate().for_each(|(i, field)| {
-                let af = field.parse::<f64>().unwrap();
-                v[i] = af;
-            });
+            fields
+                .enumerate()
+                .try_for_each(|(i, field)| -> Result<(), Error> {
+                    let af = field
+                        .parse::<f64>()
+                        .map_err(|_| ParseLineError::ParseColumnError("freq"))?;
+                    v[i] = af;
+                    Ok(())
+                })?;
             for af in v.iter() {
                 freq.push(Some(*af));
             }
@@ -532,7 +622,7 @@ impl InputData {
         }
 
         let freq = freq.finish();
-        freq
+        Ok(freq)
     }
     pub fn infer_freq_from_data(geno: &Matrix<u8>, sites: &Sites, args: &Arguments) -> Matrix<f64> {
         // assert gentoeyps is still site oriented
@@ -546,14 +636,9 @@ impl InputData {
             cnts.clear();
             cnts.resize(args.max_all as usize, 0);
             total = 0;
-            for allele in geno.get_row_iter(row) {
-                match allele {
-                    Some(allele) => {
-                        total += 1;
-                        cnts[allele as usize] += 1;
-                    }
-                    None => {}
-                };
+            for allele in geno.get_row_iter(row).flatten() {
+                total += 1;
+                cnts[allele as usize] += 1;
             }
             for each in cnts.iter() {
                 let af = Some(*each as f64 / total as f64);
@@ -561,26 +646,32 @@ impl InputData {
             }
         }
 
-        let freq = freq.finish();
-        // println!("geno.shape={}x{}", geno.get_nrows(), geno.get_ncols());
-        // println!("freq.shape={}x{}", freq.get_nrows(), freq.get_ncols());
-        freq
+        freq.finish()
     }
 
-    fn get_valid_pair_file(args: &Arguments, valid_samples: &Samples) -> Vec<(u32, u32)> {
+    fn get_valid_pair_file(
+        args: &Arguments,
+        valid_samples: &Samples,
+    ) -> Result<Vec<(u32, u32)>, Error> {
         let mut v = vec![];
         if let Some(good_file) = args.good_file.as_ref() {
             let mut buf = String::new();
             std::fs::File::open(good_file)
                 .map(BufReader::new)
-                .unwrap()
+                .map_err(|e| Error::Io {
+                    source: e,
+                    file: Some(good_file.to_owned()),
+                })?
                 .read_to_string(&mut buf)
-                .unwrap();
+                .map_err(|e| Error::Io {
+                    source: e,
+                    file: Some(good_file.to_owned()),
+                })?;
             let m = valid_samples.m();
             for line in buf.trim().split("\n") {
                 let mut fields = line.split("\t");
-                let s1 = fields.next().unwrap();
-                let s2 = fields.next().unwrap();
+                let s1 = fields.next().ok_or(ParseLineError::ReadColumnError("s1"))?;
+                let s2 = fields.next().ok_or(ParseLineError::ReadColumnError("s2"))?;
                 if m.contains_key(s1) && m.contains_key(s2) {
                     v.push((m[s1], m[s2]));
                 }
@@ -605,32 +696,60 @@ impl InputData {
                 }
             }
         }
-        v
+        Ok(v)
     }
 
-    fn get_nall(freq1: &Matrix<f64>, freq2: Option<&Matrix<f64>>) -> Vec<u8> {
+    /// get number of different alleles for all valide sites
+    fn get_nall(freq1: &Matrix<f64>, freq2: Option<&Matrix<f64>>) -> Result<Vec<u8>, Error> {
         let mut v = vec![];
         // println!("{:?}", freq1.get_row_raw_slice(0));
         // println!("{:?}", freq2.unwrap().get_row_raw_slice(0));
         for i in 0..freq1.get_nrows() {
-            let it1 = freq1.get_row_iter(i).map(|x| x.unwrap() > 0.0);
+            let mut it1 =
+                freq1
+                    .get_row_iter(i)
+                    .enumerate()
+                    .map(|(iallele, x)| -> Result<bool, Error> {
+                        Ok(x.ok_or(Error::MissingFrequency {
+                            irow: i,
+                            iallele,
+                            value: x,
+                        })? > 0.0)
+                    });
             let n = match freq2 {
                 Some(geno2) => {
-                    let it2 = geno2.get_row_iter(i).map(|x| x.unwrap() > 0.0);
-                    it1.zip(it2).filter(|(x, y)| *x || *y).count()
+                    let it2 = geno2.get_row_iter(i).enumerate().map(
+                        |(iallele, x)| -> Result<bool, Error> {
+                            Ok(x.ok_or(Error::MissingFrequency {
+                                irow: i,
+                                iallele,
+                                value: x,
+                            })? > 0.0)
+                        },
+                    );
+                    it1.zip(it2)
+                        .try_fold(0usize, |acc, (x, y)| -> Result<usize, Error> {
+                            Ok(acc + (x? || y?) as usize)
+                        })?
                 }
-                None => it1.filter(|x| *x).count(),
+                None => it1.try_fold(0usize, |acc, x| -> Result<usize, Error> {
+                    Ok(acc + x? as usize)
+                })?,
             };
             v.push(n as u8);
         }
-        v
+        Ok(v)
     }
+
+    /// Get the major allele for each site
+    ///
+    /// When one site has zero alleles, `Err(Error)` will be returned.
     fn get_major_all(
         freq1: &Matrix<f64>,
         freq2: Option<&Matrix<f64>>,
         nsam1_valid: usize,
         nsam2_valid: Option<usize>,
-    ) -> Vec<u8> {
+    ) -> Result<Vec<u8>, Error> {
         let mut v = vec![];
         let freq2 = freq2.unwrap_or(freq1);
         let nsam2_valid = nsam2_valid.unwrap_or(nsam1_valid) as f64;
@@ -644,9 +763,28 @@ impl InputData {
                 .zip(it2)
                 .map(|(a, b)| a * nsam1_valid + b * nsam2_valid)
                 .enumerate()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-                .unwrap()
+                .try_fold(
+                    (0, f64::MIN),
+                    |(max_idx, max_val), (this_idx, this_val)| -> Result<(usize, f64), Error> {
+                        if let std::cmp::Ordering::Greater = this_val
+                            .partial_cmp(&max_val)
+                            .ok_or(Error::PartialCmpIsNone("get_major_all"))?
+                        {
+                            Ok((this_idx, this_val))
+                        } else {
+                            Ok((max_idx, max_val))
+                        }
+                    },
+                )?
                 .0;
+
+            // let major_all = it
+            //     .zip(it2)
+            //     .map(|(a, b)| a * nsam1_valid + b * nsam2_valid)
+            //     .enumerate()
+            //     .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            //     .ok_or(Error::EmptyIterator)?
+            //     .0;
             v.push(major_all as u8);
             // if major_all > 1 {
             //     println!("{major_all}");
@@ -656,7 +794,7 @@ impl InputData {
         // println!("freq2.shape={},{}", freq2.get_nrows(), freq2.get_ncols());
         // println!("nsam1_valid={}, nsam2_valid={}", nsam1_valid, nsam2_valid);
         // println!("v.len={}", v.len());
-        v
+        Ok(v)
     }
 }
 
@@ -670,7 +808,7 @@ impl OutputFiles {
         args: &Arguments,
         buffer_size_segments: Option<usize>,
         buffer_size_frac: Option<usize>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let prefix = match args.output.as_ref() {
             Some(output) => output,
             None => &args.data_file1,
@@ -680,36 +818,49 @@ impl OutputFiles {
         use std::io::Write;
 
         let mut seg_file = match buffer_size_segments {
-            Some(bfsz) => std::fs::File::create(&seg_fn)
-                .map(|seg_fn| BufWriter::with_capacity(bfsz, seg_fn))
-                .unwrap(),
-            None => std::fs::File::create(&seg_fn).map(BufWriter::new).unwrap(),
-        };
+            Some(bfsz) => {
+                std::fs::File::create(&seg_fn).map(|seg_fn| BufWriter::with_capacity(bfsz, seg_fn))
+            }
+            None => std::fs::File::create(&seg_fn).map(BufWriter::new),
+        }
+        .map_err(|e| Error::Io {
+            source: e,
+            file: Some(seg_fn.clone()),
+        })?;
 
         let mut frac_file = match buffer_size_frac {
             Some(bfsz) => std::fs::File::create(&frac_fn)
-                .map(|frac_fn| BufWriter::with_capacity(bfsz, frac_fn))
-                .unwrap(),
-            None => std::fs::File::create(&frac_fn).map(BufWriter::new).unwrap(),
-        };
+                .map(|frac_fn| BufWriter::with_capacity(bfsz, frac_fn)),
+            None => std::fs::File::create(&frac_fn).map(BufWriter::new),
+        }
+        .map_err(|e| Error::Io {
+            source: e,
+            file: Some(seg_fn.clone()),
+        })?;
 
         // write header:
-        write!(
+        writeln!(
             &mut frac_file,
-            "sample1\tsample2\tN_informative_sites\tdiscordance\tlog_p\tN_fit_iteration\tN_generation\tN_state_transition\tseq_shared_best_traj\tfract_sites_IBD\tfract_vit_sites_IBD\n"
+            "sample1\tsample2\tN_informative_sites\tdiscordance\tlog_p\tN_fit_iteration\tN_generation\tN_state_transition\tseq_shared_best_traj\tfract_sites_IBD\tfract_vit_sites_IBD"
         )
-        .unwrap();
+        .map_err(|e| Error::Io {
+            source: e,
+            file: Some(frac_fn.clone()),
+        })?;
 
-        write!(
+        writeln!(
             &mut seg_file,
-            "sample1\tsample2\tchr\tstart\tend\tdifferent\tNsnp\n"
+            "sample1\tsample2\tchr\tstart\tend\tdifferent\tNsnp"
         )
-        .unwrap();
+        .map_err(|e| Error::Io {
+            source: e,
+            file: Some(seg_fn.clone()),
+        })?;
 
-        Self {
+        Ok(Self {
             seg_file: Arc::new(Mutex::new(seg_file)),
             frac_file: Arc::new(Mutex::new(frac_file)),
-        }
+        })
     }
 }
 
@@ -761,27 +912,32 @@ impl<'a> OutputBuffer<'a> {
         }
     }
 
-    pub fn add_seg(&mut self, seg: SegRecord<'a>) {
+    pub fn add_seg(&mut self, seg: SegRecord<'a>) -> Result<(), Error> {
         if self.segs.len() == self.segs.capacity() {
-            self.flush_segs();
+            self.flush_segs()?;
         }
         self.segs.push(seg);
+        Ok(())
     }
 
-    pub fn add_frac(&mut self, frac: FracRecord<'a>) {
+    pub fn add_frac(&mut self, frac: FracRecord<'a>) -> Result<(), Error> {
         if self.fracs.len() == self.fracs.len() {
-            self.flush_frac();
+            self.flush_frac()?;
         }
         self.fracs.push(frac);
+        Ok(())
     }
 
-    pub fn flush_segs(&mut self) {
+    pub fn flush_segs(&mut self) -> Result<(), Error> {
         use std::io::Write;
-        let mut file = self.seg_file.lock().unwrap();
+        let mut file = self
+            .seg_file
+            .lock()
+            .map_err(|_| Error::LockError("flush_segs"))?;
         for seg in self.segs.iter() {
-            write!(
+            writeln!(
                 file,
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 seg.sample1,
                 seg.sample2,
                 seg.chrname,
@@ -793,15 +949,19 @@ impl<'a> OutputBuffer<'a> {
             .unwrap();
         }
         self.segs.clear();
+        Ok(())
     }
 
-    pub fn flush_frac(&mut self) {
+    pub fn flush_frac(&mut self) -> Result<(), Error> {
         use std::io::Write;
-        let mut file = self.frac_file.lock().unwrap();
+        let mut file = self
+            .frac_file
+            .lock()
+            .map_err(|_| Error::LockError("flush_frac"))?;
         for frac in self.fracs.iter() {
-            write!(
+            writeln!(
                 file,
-                "{}\t{}\t{}\t{:.4}\t{:0.5e}\t{}\t{:.3}\t{}\t{:.5}\t{:.5}\t{:.5}\n",
+                "{}\t{}\t{}\t{:.4}\t{:0.5e}\t{}\t{:.3}\t{}\t{:.5}\t{:.5}\t{:.5}",
                 frac.sample1,
                 frac.sample2,
                 frac.sum,
@@ -817,5 +977,6 @@ impl<'a> OutputBuffer<'a> {
             .unwrap();
         }
         self.fracs.clear();
+        Ok(())
     }
 }

@@ -1,11 +1,21 @@
 use crate::args::RecombinationArg;
+use crate::genome::GenomeInfo;
 use crate::genome::{Genome, GenomeBuilder};
-use crate::genome2::GenomeInfo;
 use crate::gmap::GeneticMap;
 use std::collections::HashMap;
 use std::ops::Range;
 
-#[derive(Debug, Clone)]
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("{0:?}")]
+    GenomeError(#[from] crate::genome::Error),
+    #[error("{0:?}")]
+    GmapError(#[from] crate::gmap::Error),
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Sites {
     /// sorted genome-wide positions
     gw_pos_cm: Vec<f64>,
@@ -16,11 +26,7 @@ pub struct Sites {
 
 impl Sites {
     pub fn new() -> Self {
-        Self {
-            gw_pos: vec![],
-            gw_pos_cm: vec![],
-            chrom_ranges: vec![],
-        }
+        Self::default()
     }
     pub fn add(&mut self, gw_pos: u32, gw_pos_cm: f64) {
         self.gw_pos.push(gw_pos);
@@ -39,9 +45,8 @@ impl Sites {
             .all(|(x, y)| x < y));
         for chrgwstart in genome.get_gwchrstarts() {
             let s = self.gw_pos.partition_point(|x| x < chrgwstart) as u32;
-            match self.chrom_ranges.last_mut() {
-                Some(last) => last.end = s,
-                None => {}
+            if let Some(last) = self.chrom_ranges.last_mut() {
+                last.end = s;
             }
             self.chrom_ranges.push(s..s);
         }
@@ -70,7 +75,7 @@ impl Sites {
     }
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Default)]
 pub struct SiteInfoRaw {
     chrname_vec: Vec<String>,
     chrname_map: HashMap<String, usize>,
@@ -92,12 +97,7 @@ impl SiteInfoRaw {
         }
     }
     pub fn new() -> Self {
-        Self {
-            chrname_vec: vec![],
-            chrname_map: HashMap::new(),
-            chr_pos_vec: vec![],
-            chr_idx_vec: vec![],
-        }
+        Self::default()
     }
     pub fn add_chr_name(&mut self, chrname: &str) {
         self.chrname_map
@@ -112,12 +112,13 @@ impl SiteInfoRaw {
         self.chr_pos_vec.push(chr_pos);
     }
 
-    pub fn into_sites_and_genome(self, rec_args: &RecombinationArg) -> (Sites, Genome) {
+    pub fn into_sites_and_genome(self, rec_args: &RecombinationArg) -> Result<(Sites, Genome)> {
         match rec_args.genome.as_ref() {
             Some(genome_toml_path) => {
-                let ginfo = GenomeInfo::from_toml_file(genome_toml_path);
+                let ginfo =
+                    GenomeInfo::from_toml_file(genome_toml_path).map_err(Error::GenomeError)?;
                 let genome = Genome::from_genome_info(&ginfo);
-                let gmap = GeneticMap::from_genome_info(&ginfo);
+                let gmap = GeneticMap::from_genome_info(&ginfo)?;
                 let mut sites = Sites::new();
 
                 // chrid map
@@ -139,7 +140,7 @@ impl SiteInfoRaw {
                         sites.add(gw_pos, gw_pos_cm);
                     });
                 sites.finish(&genome);
-                (sites, genome)
+                Ok((sites, genome))
             }
             None => {
                 let mut sites = Sites::new();
@@ -148,15 +149,17 @@ impl SiteInfoRaw {
                 self.chr_idx_vec
                     .iter()
                     .zip(self.chr_pos_vec.iter())
-                    .for_each(|(oldid, chr_pos)| {
-                        let (_, gw_pos) = gbuilder.encode_pos(&self.chrname_vec[*oldid], *chr_pos);
+                    .try_for_each(|(oldid, chr_pos)| -> Result<()> {
+                        let (_, gw_pos) =
+                            gbuilder.encode_pos(&self.chrname_vec[*oldid], *chr_pos)?;
                         let gw_pos_cm = gw_pos as f64 * recom_rate * 100.0;
                         sites.add(gw_pos, gw_pos_cm);
-                    });
+                        Ok(())
+                    })?;
                 let genome = gbuilder.finish();
                 sites.finish(&genome);
 
-                (sites, genome)
+                Ok((sites, genome))
             }
         }
     }

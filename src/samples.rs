@@ -5,6 +5,15 @@ use std::{
 
 use crate::{args::Arguments, bcf::DominantGenotype};
 
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("io error, source: {source:?}, path: {path:?}")]
+    Io {
+        source: std::io::Error,
+        path: std::path::PathBuf,
+    },
+}
+
 #[derive(Clone)]
 pub struct Samples {
     v: Vec<String>,
@@ -36,16 +45,22 @@ impl Samples {
             pop2_nsam,
         }
     }
-    pub fn from_args(args: &Arguments, dgt: Option<&DominantGenotype>) -> Self {
+    pub fn from_args(args: &Arguments, dgt: Option<&DominantGenotype>) -> Result<Self, Error> {
         let mut s = String::new();
         // get bad samples
         let mut bad_samples = HashSet::<String>::new();
         if let Some(bad_file) = args.bad_file.as_ref() {
             std::fs::File::open(bad_file)
                 .map(BufReader::new)
-                .unwrap()
+                .map_err(|e| Error::Io {
+                    source: e,
+                    path: std::path::PathBuf::from(bad_file),
+                })?
                 .read_to_string(&mut s)
-                .unwrap();
+                .map_err(|e| Error::Io {
+                    source: e,
+                    path: std::path::PathBuf::from(bad_file),
+                })?;
             for x in s.trim().split("\t") {
                 bad_samples.insert(x.to_owned());
             }
@@ -72,9 +87,15 @@ impl Samples {
                 s.clear();
                 std::fs::File::open(&args.data_file1)
                     .map(BufReader::new)
-                    .unwrap()
+                    .map_err(|e| Error::Io {
+                        source: e,
+                        path: std::path::PathBuf::from(&args.data_file1),
+                    })?
                     .read_line(&mut s)
-                    .unwrap();
+                    .map_err(|e| Error::Io {
+                        source: e,
+                        path: std::path::PathBuf::from(&args.data_file1),
+                    })?;
                 for x in s.trim().split("\t").skip(2) {
                     if !bad_samples.contains(x) {
                         assert!(!m.contains_key(x), "duplicated sample names");
@@ -90,9 +111,15 @@ impl Samples {
                 if let Some(data_file2) = args.data_file2.as_ref() {
                     std::fs::File::open(data_file2)
                         .map(BufReader::new)
-                        .unwrap()
+                        .map_err(|e| Error::Io {
+                            source: e,
+                            path: std::path::PathBuf::from(&data_file2),
+                        })?
                         .read_line(&mut s)
-                        .unwrap();
+                        .map_err(|e| Error::Io {
+                            source: e,
+                            path: std::path::PathBuf::from(&data_file2),
+                        })?;
                     for x in s.trim().split("\t").skip(2) {
                         if !bad_samples.contains(x) {
                             assert!(!m.contains_key(x), "duplicated sample names");
@@ -107,12 +134,12 @@ impl Samples {
             }
         }
 
-        Self {
+        Ok(Self {
             m,
             v,
             pop1_nsam,
             pop2_nsam,
-        }
+        })
     }
 
     pub fn v(&self) -> &Vec<String> {
@@ -132,5 +159,5 @@ impl Samples {
 #[test]
 fn read_samples() {
     let args = Arguments::new_for_test();
-    Samples::from_args(&args, None);
+    Samples::from_args(&args, None).unwrap();
 }

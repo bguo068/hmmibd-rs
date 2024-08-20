@@ -69,6 +69,12 @@ pub struct PerChrModelVariables {
     // non-missing sites per chromosome per sample pair
     pub nsites: usize,
 }
+
+impl Default for PerChrModelVariables {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl PerChrModelVariables {
     pub fn new() -> Self {
         Self {
@@ -83,7 +89,7 @@ impl PerChrModelVariables {
     }
 
     pub fn resize_and_clear(&mut self, data: &InputData, chrid: usize) {
-        let r = data.sites.get_chrom_pos_idx_ranges(chrid as usize);
+        let r = data.sites.get_chrom_pos_idx_ranges(chrid);
         let n = r.1 - r.0;
         self.alpha.resize_and_clear(2, n, 0.0);
         self.beta.resize_and_clear(2, n + 1, 0.0); // TODO figure out plus 1

@@ -1,8 +1,18 @@
+#![allow(clippy::too_many_arguments)]
 use crate::{
-    data::{FracRecord, InputData, OutputBuffer, SegRecord},
+    data::{self, FracRecord, InputData, OutputBuffer, SegRecord},
     matrix::AsOption,
     model::*,
 };
+
+pub type Result<T> = std::result::Result<T, Error>;
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("{0:?}")]
+    DataError(#[from] data::Error),
+    #[error("frequency is none")]
+    FreqIsNone,
+}
 
 pub struct HmmRunner<'a> {
     data: &'a InputData,
@@ -20,7 +30,7 @@ impl<'a> HmmRunner<'a> {
         b: &mut Vec<[f64; 2]>,
         out: &mut OutputBuffer<'a>,
         suppress_frac: bool,
-    ) {
+    ) -> Result<()> {
         let mut ms = ModelParamState::new(self.data);
         let mut cv = PerChrModelVariables::new();
         let mut rs = RunningStats::new();
@@ -35,7 +45,7 @@ impl<'a> HmmRunner<'a> {
             ms.model.max_phi = 0.0;
             rs = RunningStats::new();
 
-            self.run_over_fit_iterations(pair, &mut ms, &mut rs, &mut cv, a, b, out);
+            self.run_over_fit_iterations(pair, &mut ms, &mut rs, &mut cv, a, b, out)?;
             if ms.is_fit_finished() {
                 break;
             }
@@ -43,10 +53,11 @@ impl<'a> HmmRunner<'a> {
             self.update_model(&rs, &mut ms);
         }
         if suppress_frac {
-            return;
+            return Ok(());
         }
         // print fraction of allele IBD for a given pair
-        self.print_hmm_frac(&mut ms, pair, &mut rs, out);
+        self.print_hmm_frac(&ms, pair, &rs, out)?;
+        Ok(())
     }
 
     pub fn run_over_fit_iterations(
@@ -55,14 +66,15 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        a: &mut Vec<[[f64; 2]; 2]>,
-        b: &mut Vec<[f64; 2]>,
+        a: &mut [[[f64; 2]; 2]],
+        b: &mut [[f64; 2]],
         out: &mut OutputBuffer<'a>,
-    ) {
+    ) -> Result<()> {
         let nchrom = self.data.genome.get_nchrom();
         for chrid in 0..nchrom as usize {
-            self.run_over_single_chromsome(pair, chrid, ms, rs, cv, a, b, out);
+            self.run_over_single_chromsome(pair, chrid, ms, rs, cv, a, b, out)?;
         }
+        Ok(())
     }
 
     pub fn run_over_single_chromsome(
@@ -72,14 +84,14 @@ impl<'a> HmmRunner<'a> {
         ms: &mut ModelParamState,
         rs: &mut RunningStats,
         cv: &mut PerChrModelVariables,
-        a: &mut Vec<[[f64; 2]; 2]>,
-        b: &mut Vec<[f64; 2]>,
+        a: &mut [[[f64; 2]; 2]],
+        b: &mut [[f64; 2]],
         out: &mut OutputBuffer<'a>,
-    ) {
+    ) -> Result<()> {
         // skip empty chromosomes
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
         if start_chr == end_chr {
-            return;
+            return Ok(());
         }
         cv.resize_and_clear(self.data, chrid);
         // iterator over snp forward to calculate
@@ -88,7 +100,7 @@ impl<'a> HmmRunner<'a> {
         // - delta
         // - psi
         // - max_phiL
-        self.run_over_snp_1_fwd(pair, chrid, ms, cv, a, b);
+        self.run_over_snp_1_fwd(pair, chrid, ms, cv, a, b)?;
 
         // iterator over snp backward to calcuate
         // - beta
@@ -104,9 +116,10 @@ impl<'a> HmmRunner<'a> {
         self.run_over_snp_4_fwd(chrid, rs, cv, a, b);
 
         if (ms.iiter == (self.data.args.max_iter - 1) as usize) || ms.finish_fit {
-            self.print_final_viterbi_trajectory(pair, chrid, rs, cv, out, ms);
+            self.print_final_viterbi_trajectory(pair, chrid, rs, cv, out, ms)?;
             self.tabulate_sites_by_state_for_viterbi_traj(chrid, rs, cv);
         }
+        Ok(())
     }
     pub fn run_over_snp_1_fwd(
         &self,
@@ -114,9 +127,9 @@ impl<'a> HmmRunner<'a> {
         chrid: usize,
         ms: &mut ModelParamState,
         cv: &mut PerChrModelVariables,
-        a_gw: &mut Vec<[[f64; 2]; 2]>,
-        b_gw: &mut Vec<[f64; 2]>,
-    ) {
+        a_gw: &mut [[[f64; 2]; 2]],
+        b_gw: &mut [[f64; 2]],
+    ) -> Result<()> {
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
         let geno_x = &self.data.geno[pair.0][start_chr..end_chr];
         let geno_y = &self.data.geno[pair.1][start_chr..end_chr];
@@ -163,10 +176,10 @@ impl<'a> HmmRunner<'a> {
                 } else {
                     let g_xt = g_xt as usize;
                     let g_yt = g_yt as usize;
-                    let f1_x = freq1[t][g_xt].as_option().unwrap();
-                    let f1_y = freq1[t][g_yt].as_option().unwrap();
-                    let f2_x = freq2[t][g_xt].as_option().unwrap();
-                    let f2_y = freq2[t][g_yt].as_option().unwrap();
+                    let f1_x = freq1[t][g_xt].as_option().ok_or(Error::FreqIsNone)?;
+                    let f1_y = freq1[t][g_yt].as_option().ok_or(Error::FreqIsNone)?;
+                    let f2_x = freq2[t][g_xt].as_option().ok_or(Error::FreqIsNone)?;
+                    let f2_y = freq2[t][g_yt].as_option().ok_or(Error::FreqIsNone)?;
                     if g_xt == g_yt {
                         // concordant genotype
                         // Schaffner's Additional File 1: Eq 2 and 3
@@ -216,7 +229,7 @@ impl<'a> HmmRunner<'a> {
                 let a = &mut a_chr[t - 1];
                 // induction
                 // Schaffer's Additional File 1 Eq 1
-                let ptrans = ms.model.k_rec * (cm[t] - cm[t - 1]) as f64 / 100.0;
+                let ptrans = ms.model.k_rec * (cm[t] - cm[t - 1]) / 100.0;
                 a[0][1] = pi[1] - pi[1] * (-ptrans).exp();
                 a[1][0] = pi[0] - pi[0] * (-ptrans).exp();
                 a[0][0] = 1.0 - a[0][1];
@@ -225,23 +238,23 @@ impl<'a> HmmRunner<'a> {
                 // Rabiner's Eq 20 for (alpha)
                 // Rabiner's Eq 33a for (phi)
                 // Rabiner's Eq 33b for (psi)
-                for i_o in 0..2 {
+                for (i_o, b_i_o) in (*b).into_iter().enumerate() {
                     let mut max_val = f64::MIN;
                     let mut alpha_it = 0.0;
 
                     cv.scale[t] = 0.0;
-                    for i_i in 0..2 {
+                    for (i_i, a_i_i) in (*a).into_iter().enumerate() {
                         // Rabinar's Eq 33b (target)
-                        let score = cv.phi[i_i][t - 1] + a[i_i][i_o].ln();
+                        let score = cv.phi[i_i][t - 1] + a_i_i[i_o].ln();
                         if score > max_val {
                             max_val = score;
                             // Rabiner's Eq 33b for (psi)
                             cv.psi[i_o][t] = i_i as u8;
                         }
                         // Rabiner's Eq 33a for (phi)
-                        cv.phi[i_o][t] = max_val + b[i_o].ln();
+                        cv.phi[i_o][t] = max_val + b_i_o.ln();
                         // Rabiner's Eq 20 for (alpha, part)
-                        alpha_it += cv.alpha[i_i][t - 1] * a[i_i][i_o] * b[i_o];
+                        alpha_it += cv.alpha[i_i][t - 1] * a_i_i[i_o] * b_i_o;
                     }
                     // Rabiner's Eq 20 for (alpha, sum of part)
                     cv.alpha[i_o][t] = alpha_it;
@@ -250,7 +263,7 @@ impl<'a> HmmRunner<'a> {
                 }
                 // scaling
                 for i in 0..2 {
-                    cv.alpha[i][t] = cv.alpha[i][t] / cv.scale[t];
+                    cv.alpha[i][t] /= cv.scale[t];
                 }
             }
         }
@@ -273,6 +286,7 @@ impl<'a> HmmRunner<'a> {
         // separately under a given iteration of the model (in other words, data
         // from all chromosomes are fit using common values of π and k) ..."
         ms.model.max_phi += max_phi_local;
+        Ok(())
     }
 
     /// Cacluating Beta
@@ -280,8 +294,8 @@ impl<'a> HmmRunner<'a> {
         &self,
         chrid: usize,
         cv: &mut PerChrModelVariables,
-        a_gw: &Vec<[[f64; 2]; 2]>,
-        b_gw: &mut Vec<[f64; 2]>,
+        a_gw: &[[[f64; 2]; 2]],
+        b_gw: &mut [[f64; 2]],
     ) {
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
         let nsites = end_chr - start_chr;
@@ -326,8 +340,8 @@ impl<'a> HmmRunner<'a> {
         // ms: &ModelParamState,
         rs: &mut RunningStats,
         cv: &PerChrModelVariables,
-        a_gw: &Vec<[[f64; 2]; 2]>,
-        b_gw: &mut Vec<[f64; 2]>,
+        a_gw: &[[[f64; 2]; 2]],
+        b_gw: &mut [[f64; 2]],
     ) {
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
         let pos = &self.data.sites.get_pos_slice()[start_chr..end_chr];
@@ -387,15 +401,15 @@ impl<'a> HmmRunner<'a> {
         cv: &mut PerChrModelVariables,
         out: &mut OutputBuffer<'a>,
         ms: &ModelParamState,
-    ) {
+    ) -> Result<()> {
         // if no useful sites, no segment generated
         if cv.nsites == 0 {
-            return;
+            return Ok(());
         }
         // skip if too old
         if let Some(max_tmrca) = self.data.args.filt_max_tmrca {
             if ms.model.k_rec > max_tmrca {
-                return;
+                return Ok(());
             }
         }
         let (start_chr, end_chr) = self.data.sites.get_chrom_pos_idx_ranges(chrid);
@@ -444,12 +458,12 @@ impl<'a> HmmRunner<'a> {
             // skip if too short
             if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
                 let cm = cm[t - 1] - cm[t_seg_start];
-                if cm < min_seg_cm as f64 {
+                if cm < min_seg_cm {
                     t_seg_start = t;
                     continue;
                 }
             }
-            out.add_seg(seg);
+            out.add_seg(seg)?;
             t_seg_start = t;
         }
         // Process the "hanging" segments
@@ -462,13 +476,13 @@ impl<'a> HmmRunner<'a> {
 
         // if output IBD only and segment is not IBD
         if self.data.args.filt_ibd_only && (ibd == 1) {
-            return;
+            return Ok(());
         }
         // skip if too short
         if let Some(min_seg_cm) = self.data.args.filt_min_seg_cm {
             let cm = cm[nsites - 1] - cm[t_seg_start];
-            if cm < min_seg_cm as f64 {
-                return;
+            if cm < min_seg_cm {
+                return Ok(());
             }
         }
         let seg = SegRecord {
@@ -480,7 +494,8 @@ impl<'a> HmmRunner<'a> {
             ibd,
             n_snp: nsites - 1 - t_seg_start + 1,
         };
-        out.add_seg(seg);
+        out.add_seg(seg)?;
+        Ok(())
     }
 
     pub fn tabulate_sites_by_state_for_viterbi_traj(
@@ -526,7 +541,6 @@ impl<'a> HmmRunner<'a> {
                 pi[0] = 1e-5;
             } else if pi[0] > 1.0 - 1e-5 {
                 pi[0] = 1.0 - 1e-5;
-            } else {
             }
             if ms.model.k_rec < 1e-5 {
                 ms.model.k_rec = 1e-5;
@@ -555,7 +569,7 @@ impl<'a> HmmRunner<'a> {
         pair: (usize, usize),
         rs: &RunningStats,
         out: &mut OutputBuffer<'a>,
-    ) {
+    ) -> Result<()> {
         let sample1 = &self.data.samples.v()[pair.0];
         let sample2 = &self.data.samples.v()[pair.1];
 
@@ -566,8 +580,7 @@ impl<'a> HmmRunner<'a> {
         let k_rec = ms.model.k_rec;
         let ntrans = rs.ntrans;
         let seq_ibd_ratio = rs.seq_ibd / (rs.seq_ibd + rs.seq_dbd);
-        let count_ibd_fb_ratio =
-            rs.count_ibd_fb as f64 / (rs.count_dbd_fb + rs.count_ibd_fb) as f64;
+        let count_ibd_fb_ratio = rs.count_ibd_fb / (rs.count_dbd_fb + rs.count_ibd_fb);
         let count_ibd_vit_ratio =
             rs.count_ibd_vit as f64 / (rs.count_dbd_vit + rs.count_ibd_vit) as f64;
         let frac = FracRecord {
@@ -583,10 +596,12 @@ impl<'a> HmmRunner<'a> {
             count_ibd_fb_ratio,
             count_ibd_vit_ratio,
         };
-        out.add_frac(frac);
+        out.add_frac(frac)?;
+        Ok(())
     }
 }
 
+#[derive(Default)]
 pub struct RunningStats {
     /// Running sum of probility of observing transition (over the genome)
     /// See Shanffner 2018, Additional File 1, page 5.
@@ -615,19 +630,7 @@ pub struct RunningStats {
 
 impl RunningStats {
     pub fn new() -> Self {
-        Self {
-            trans_obs: 0.0,
-            trans_pred: 0.0,
-            ntrans: 0,
-            seq_ibd: 0.0,
-            seq_dbd: 0.0,
-            count_ibd_fb: 0.0,
-            count_dbd_fb: 0.0,
-            seq_ibd_fb: 0.0,
-            seq_dbd_fb: 0.0,
-            count_ibd_vit: 0,
-            count_dbd_vit: 0,
-        }
+        Self::default()
     }
 }
 
@@ -637,20 +640,22 @@ fn test_hmm() {
     use crate::data::OutputFiles;
     let args = Arguments::new_for_test();
 
-    let input = InputData::from_args(&args);
+    let input = InputData::from_args(&args).unwrap();
 
     let runner = HmmRunner::new(&input);
 
     {
-        let out = OutputFiles::new_from_args(&args, None, None);
+        let out = OutputFiles::new_from_args(&args, None, None).unwrap();
         let mut a = vec![];
         let mut b = vec![];
         for pair in input.pairs.iter() {
             let pair = (pair.0 as usize, pair.1 as usize);
             let mut out = OutputBuffer::new(&out, 1, 1);
-            runner.run_hmm_on_pair(pair, &mut a, &mut b, &mut out, false);
-            out.flush_frac();
-            out.flush_segs();
+            runner
+                .run_hmm_on_pair(pair, &mut a, &mut b, &mut out, false)
+                .unwrap();
+            out.flush_frac().unwrap();
+            out.flush_segs().unwrap();
         }
     }
 
@@ -794,8 +799,8 @@ fn test_hmm_with_bcf() {
     use crate::data::OutputFiles;
     let args = Arguments::new_for_test_bcf();
 
-    let out = OutputFiles::new_from_args(&args, None, None);
-    let input = InputData::from_args(&args);
+    let out = OutputFiles::new_from_args(&args, None, None).unwrap();
+    let input = InputData::from_args(&args).unwrap();
 
     let runner = HmmRunner::new(&input);
 
@@ -804,6 +809,8 @@ fn test_hmm_with_bcf() {
     for pair in input.pairs.iter().take(2) {
         let pair = (pair.0 as usize, pair.1 as usize);
         let mut out = OutputBuffer::new(&out, 1, 1);
-        runner.run_hmm_on_pair(pair, &mut a, &mut b, &mut out, false);
+        runner
+            .run_hmm_on_pair(pair, &mut a, &mut b, &mut out, false)
+            .unwrap();
     }
 }

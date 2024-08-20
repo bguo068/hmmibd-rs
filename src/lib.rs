@@ -42,11 +42,13 @@
 //        - finisht_fit
 //        -
 
+#![warn(clippy::unwrap_used, clippy::expect_used)]
+
 pub mod args;
 pub mod bcf;
 pub mod data;
 pub mod genome;
-pub mod genome2;
+// pub mod genome2;
 pub mod gmap;
 pub mod hmm;
 pub mod matrix;
