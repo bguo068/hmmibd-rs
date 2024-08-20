@@ -30,7 +30,7 @@ pub struct Arguments {
 
     ///  Optional: File of allele frequencies for the sample population. Format:
     ///  tab-delimited, no header, one variant per row. Line format: <chromosome
-    ///  (int)> <position (bp, int)> <allele 1 freq> <all 2 freq> [<all 3 freq>]
+    ///  (int)> <position (bp, int)> <allele 1 freq> <all 2 freq> <all 3 freq>
     ///  ... The genotype and frequency files must contain exactly the same
     ///  variants, in the same order. If no file is supplied, allele frequencies
     ///  are calculated from the input data file.

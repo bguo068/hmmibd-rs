@@ -49,6 +49,9 @@ pub enum Error {
 
     #[error("sample error: {0:?}")]
     PartialCmpIsNone(&'static str),
+
+    #[error("toml serialize error: {0:?}")]
+    TomlSerializeError(#[from] toml::ser::Error),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -219,7 +222,20 @@ impl InputData {
                 Some(dom_gt_config_path) => {
                     DominantGenotypeArgs::new_from_toml_file(dom_gt_config_path)
                 }
-                None => DominantGenotypeArgs::new_from_builtin(),
+                None => {
+                    let config = DominantGenotypeArgs::new_from_builtin()?;
+                    std::fs::write("tmp_dom_gt_config.toml", toml::to_string(&config)?).map_err(
+                        |e| Error::Io {
+                            source: e,
+                            file: args.dom_gt_config.to_owned(),
+                        },
+                    )?;
+                    eprintln!(concat!(
+                        "WARN: --dom-gt-config not specified, a builtin configuration is used",
+                        " and is written to 'tmp_dom_gt_config.toml'",
+                    ));
+                    Ok(config)
+                }
             }?;
             let dgt = DominantGenotype::new_from_processing_bcf(&dga, &args.data_file1)?;
             Some(dgt)

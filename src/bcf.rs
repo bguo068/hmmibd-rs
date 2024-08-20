@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
 use bcf_reader::*;
 use itertools::{EitherOrBoth, Itertools};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, io::BufReader};
 
 use crate::{
     matrix::{Matrix, MatrixBuilder},
@@ -10,13 +9,15 @@ use crate::{
     sites::SiteInfoRaw,
 };
 
-#[derive(Default, Deserialize, Debug, Clone)]
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
 pub struct DominantGenotypeArgs {
     pub min_depth: u32,
     pub min_ratio: f32,
+    pub min_maf: f32,
     pub min_r1_r2: f32,
     pub min_site_nonmissing: f32,
     pub nonmissing_rates: Vec<(f32, f32)>,
+    pub target_samples: Option<std::path::PathBuf>,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -47,6 +48,7 @@ impl DominantGenotypeArgs {
 min_depth = 5
 min_ratio = 0.7
 min_r1_r2 = 3.0
+min_maf = 0.01
 min_site_nonmissing = 0.1
 nonmissing_rates= [
     [0.05, 0.025],
@@ -70,9 +72,8 @@ nonmissing_rates= [
     [0.85, 0.55],
     [0.85, 0.60],
     [0.85, 0.65],
-    [0.85, 0.70],
-    [0.85, 0.80],
-    [0.85, 0.85],
+    [0.90, 0.70],
+    [0.90, 0.80],
  ]
     "#;
 
@@ -90,7 +91,7 @@ pub struct DominantGenotype {
     chrname_map: HashMap<String, usize>,
     selected_samples: Vec<usize>,
     selected_sites: Vec<usize>,
-    nsam: usize,
+    nsam_targeted: usize,
     args: DominantGenotypeArgs,
 }
 
@@ -104,19 +105,19 @@ impl DominantGenotype {
             chrname_map: HashMap::new(),
             selected_samples: vec![],
             selected_sites: vec![],
-            nsam: 0,
+            nsam_targeted: 0,
             args: bcffilter_args.clone(),
         }
     }
     fn read_dom(&mut self, bcf_fname: impl AsRef<std::path::Path>) -> Result<Header> {
-        let mut reader = smart_reader(bcf_fname.as_ref())?;
-        let header = Header::from_string(&read_header(&mut reader)?)
-            .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
+        let reader = std::fs::File::open(bcf_fname.as_ref()).map(BufReader::new)?;
+        let mut reader =
+            BcfReader::from_reader(ParMultiGzipReader::from_reader(reader, 3, None, None)?);
+        let header = reader.read_header()?;
+        // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
         let mut record = Record::default();
         let ad_key = header.get_idx_from_dictionary_str("FORMAT", "AD").unwrap();
         let nsam = header.get_samples().len();
-        self.nsam = nsam;
-        self.sample_vec = header.get_samples().to_owned();
         let mut chrname_map = HashMap::<String, usize>::new();
         for (id, dict) in header.dict_contigs().iter() {
             let chrname = dict["ID"].to_owned();
@@ -124,11 +125,43 @@ impl DominantGenotype {
         }
         self.chrname_map = chrname_map;
 
+        // get indicators for target samples
+        let mut is_sample_targeted = vec![];
+        is_sample_targeted.resize(nsam, true);
+        if let Some(p) = self.args.target_samples.as_ref() {
+            // read target samples
+            let targets: std::collections::HashSet<_> = std::fs::read_to_string(p)?
+                .trim()
+                .split('\n')
+                .map(String::from)
+                .collect();
+            // check if each sample in vcf  is in target set
+            header
+                .get_samples()
+                .iter()
+                .enumerate()
+                .for_each(|(idx, sname)| {
+                    if !targets.contains(sname) {
+                        is_sample_targeted[idx] = false;
+                    }
+                });
+        }
+        let nsam_in_targets: usize = is_sample_targeted.iter().map(|e| *e as usize).sum();
+        self.nsam_targeted = nsam_in_targets;
+        self.sample_vec.extend(
+            header
+                .get_samples()
+                .iter()
+                .zip(is_sample_targeted.iter())
+                .filter(|(_sname, is_target)| **is_target)
+                .map(|(sname, _is_target)| sname.to_owned()),
+        );
         let mut nrec = 0;
         let mut nvalid = 0;
 
         let mut indv_ad = Vec::<(usize, u32)>::new(); // (allele_idx, ad)
-        while record.read(&mut reader).is_ok() {
+        let mut allele_counts = Vec::<(usize, u32)>::new(); // (allele_idx, AC)
+        while reader.read_record(&mut record).is_ok() {
             let nallele = record.n_allele() as usize;
 
             // not segrating
@@ -142,7 +175,11 @@ impl DominantGenotype {
 
             let mut site_nonmiss_counter = 0;
             let chunks = record.fmt_field(ad_key).chunks(record.n_allele() as usize);
-            for mut nv_indv in chunks.into_iter() {
+            for (mut nv_indv, _) in chunks
+                .into_iter()
+                .zip(is_sample_targeted.iter())
+                .filter(|(_, is_target)| **is_target)
+            {
                 indv_ad.clear();
                 nv_indv.try_for_each(|nv_res| -> Result<()> {
                     let val = nv_res?
@@ -169,11 +206,29 @@ impl DominantGenotype {
                 }
                 self.dom_vec.push(dom_allele);
             }
+            let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
+
+            // calculate minor allele frequency based on dom_allele for this site
+            allele_counts.clear();
+            allele_counts.resize(nallele, (0, 0));
+            let mut tot_allele_counts = 0u32;
+            for a in self.dom_vec[(self.dom_vec.len() - nsam_in_targets)..].iter() {
+                let a = *a;
+                if a < 0 {
+                    continue;
+                } else {
+                    allele_counts[a as usize].1 += 1;
+                    tot_allele_counts += 1;
+                }
+            }
+            allele_counts.sort_by_key(|(_idx, cnt)| u32::MAX - cnt); // reverse sort
+            let maf = allele_counts[1].1 as f32 / tot_allele_counts as f32;
 
             // at the end of the line, check if the site has too many missing dominant allele
             // if yes remove those
-            if (site_nonmiss_counter as f32 / nsam as f32) < self.args.min_site_nonmissing {
-                self.dom_vec.resize(self.dom_vec.len() - nsam, 0);
+            if (non_missing_rate < self.args.min_site_nonmissing) || (maf < self.args.min_maf) {
+                // remove alleles for this site
+                self.dom_vec.resize(self.dom_vec.len() - nsam_in_targets, 0);
             } else {
                 self.chr_vec.push(record.chrom());
                 self.pos_vec.push(record.pos());
@@ -201,7 +256,7 @@ impl DominantGenotype {
         for row in sites.iter() {
             let mut cnt = 0;
             for col in samples.iter() {
-                if self.dom_vec[*row * self.nsam + col] != -1 {
+                if self.dom_vec[*row * self.nsam_targeted + col] != -1 {
                     cnt += 1;
                 };
             }
@@ -215,7 +270,7 @@ impl DominantGenotype {
         let mut count_ind = vec![0usize; samples.len()];
         for row in sites.iter() {
             for (icol, col) in samples.iter().enumerate() {
-                if self.dom_vec[*row * self.nsam + col] != -1 {
+                if self.dom_vec[*row * self.nsam_targeted + col] != -1 {
                     count_ind[icol] += 1;
                 };
             }
@@ -236,7 +291,7 @@ impl DominantGenotype {
         let mut cnt2 = 0;
         for row in self.selected_sites.iter() {
             for col in self.selected_samples.iter() {
-                if self.dom_vec[*row * self.nsam + col] != -1 {
+                if self.dom_vec[*row * self.nsam_targeted + col] != -1 {
                     cnt += 1;
                 };
                 cnt2 += 1;
@@ -265,14 +320,14 @@ impl DominantGenotype {
                 .iter()
                 .map(|i| self.sample_vec[*i].to_owned()),
         );
-        new_dg.nsam = nsam;
+        new_dg.nsam_targeted = nsam;
 
         new_dg.dom_vec.reserve(nsites * nsam);
         for site in self.selected_sites.iter() {
             for sample in self.selected_samples.iter() {
                 new_dg
                     .dom_vec
-                    .push(self.dom_vec[*site * self.nsam + *sample]);
+                    .push(self.dom_vec[*site * self.nsam_targeted + *sample]);
             }
         }
 
@@ -289,7 +344,7 @@ impl DominantGenotype {
         dg.read_dom(bcf_path)?;
 
         println!(
-            "before filteing: n good site = {}, n good samples = {}",
+            "before filtering: n good site = {}, n good samples = {}",
             dg.selected_sites.len(),
             dg.selected_samples.len()
         );
@@ -328,7 +383,7 @@ impl DominantGenotype {
             chrname_map,
             selected_samples: _,
             selected_sites: _,
-            nsam,
+            nsam_targeted: nsam,
             args: _,
         } = self;
 
