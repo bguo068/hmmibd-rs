@@ -109,8 +109,12 @@ impl DominantGenotype {
             args: bcffilter_args.clone(),
         }
     }
-    fn read_dom(&mut self, bcf_fname: impl AsRef<std::path::Path>) -> Result<Header> {
-        let reader = std::fs::File::open(bcf_fname.as_ref()).map(BufReader::new)?;
+    fn read_dom(&mut self, bcf_fname: &str) -> Result<Header> {
+        let reader: Box<dyn std::io::Read> = if bcf_fname == "-" {
+            Box::new(std::io::stdin().lock())
+        } else {
+            Box::new(std::fs::File::open(bcf_fname).map(BufReader::new)?)
+        };
         let mut reader =
             BcfReader::from_reader(ParMultiGzipReader::from_reader(reader, 3, None, None)?);
         let header = reader.read_header()?;
@@ -338,7 +342,7 @@ impl DominantGenotype {
 
     pub fn new_from_processing_bcf(
         dgt_args: &DominantGenotypeArgs,
-        bcf_path: impl AsRef<std::path::Path>,
+        bcf_path: &str,
     ) -> Result<Self> {
         let mut dg = Self::new(dgt_args);
         dg.read_dom(bcf_path)?;

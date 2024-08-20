@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use hmmibd_rs::args::Arguments;
-use hmmibd_rs::data::{InputData, OutputBuffer, OutputFiles};
+use hmmibd_rs::data::{self, InputData, OutputBuffer, OutputFiles};
 use hmmibd_rs::hmm::HmmRunner;
 use rayon::prelude::*;
 
@@ -12,6 +12,17 @@ fn main() -> Result<()> {
     let suppress_frac = cli.suppress_frac;
     let buffer_size_segments = cli.buffer_size_segments;
     let buffer_size_frac = cli.buffer_size_frac;
+
+    if (!cli.from_bcf) && (cli.data_file1 == "-") {
+        Err(data::Error::CliArgError(
+            "reading from stdin is currently only supported when --from-bcf is used",
+        ))?;
+    }
+    if (cli.data_file1 == "-") && (cli.output.is_none()) {
+        Err(data::Error::CliArgError(
+            "when reading from stdin is specified, --output should be specified as it cannot be inferred",
+        ))?;
+    }
 
     let outfiles = OutputFiles::new_from_args(&cli, buffer_size_segments, buffer_size_frac)?;
     let input = InputData::from_args(&cli)?;

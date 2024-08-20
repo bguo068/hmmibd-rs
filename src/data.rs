@@ -52,6 +52,9 @@ pub enum Error {
 
     #[error("toml serialize error: {0:?}")]
     TomlSerializeError(#[from] toml::ser::Error),
+
+    #[error("cli argument error: {0:?}")]
+    CliArgError(&'static str),
 }
 
 #[derive(Debug, thiserror::Error)]
