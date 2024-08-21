@@ -8,7 +8,8 @@ edition = "2021"
 [dependencies]
 anstyle = "1.0.8"
 anyhow = { version = "1.0.86", features = ["backtrace"] }
-bcf_reader = "0.3.0"
+# bcf_reader = { version = "0.3.0", features = ["zlib"] }
+bcf_reader = { path = "../bcf-reader", features = ["zlib"] }
 clap = { version = "4.3.4", features = ["derive", "wrap_help"] }
 csv = "1.2.2"
 itertools = "0.12.1"

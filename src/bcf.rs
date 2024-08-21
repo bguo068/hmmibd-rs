@@ -10,7 +10,7 @@ use crate::{
 };
 
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
-pub struct DominantGenotypeArgs {
+pub struct BcfFilterArgs {
     pub min_depth: u32,
     pub min_ratio: f32,
     pub min_maf: f32,
@@ -33,15 +33,15 @@ pub enum Error {
     #[error("toml deserialize error: {0:?}")]
     TomlDeserializeError(#[from] toml::de::Error),
 
-    #[error("Dominant genotype is empty: {file}:{line}")]
-    DominantGenotypeEmpty { file: &'static str, line: u32 },
+    #[error("genotype is empty: {file}:{line}")]
+    GenotypeEmpty { file: &'static str, line: u32 },
 }
 
-impl DominantGenotypeArgs {
+impl BcfFilterArgs {
     pub fn new_from_toml_file(dom_gt_config_path: &str) -> Result<Self> {
         let toml_str = std::fs::read_to_string(dom_gt_config_path)?;
-        let dga: DominantGenotypeArgs = toml::from_str(&toml_str)?;
-        Ok(dga)
+        let bcf_filter_args: BcfFilterArgs = toml::from_str(&toml_str)?;
+        Ok(bcf_filter_args)
     }
     pub fn new_from_builtin() -> Result<Self> {
         let toml_str = r#"
@@ -77,30 +77,30 @@ nonmissing_rates= [
  ]
     "#;
 
-        let dga: DominantGenotypeArgs = toml::from_str(toml_str)?;
+        let dga: BcfFilterArgs = toml::from_str(toml_str)?;
         Ok(dga)
     }
 }
 
 #[derive(Default, Deserialize, Debug)]
-pub struct DominantGenotype {
+pub struct BcfGenotype {
     chr_vec: Vec<i32>,
     pos_vec: Vec<i32>,
-    dom_vec: Vec<i8>,
+    gt_vec: Vec<i8>,
     sample_vec: Vec<String>,
     chrname_map: HashMap<String, usize>,
     selected_samples: Vec<usize>,
     selected_sites: Vec<usize>,
     nsam_targeted: usize,
-    args: DominantGenotypeArgs,
+    args: BcfFilterArgs,
 }
 
-impl DominantGenotype {
-    fn new(bcffilter_args: &DominantGenotypeArgs) -> Self {
+impl BcfGenotype {
+    fn new(bcffilter_args: &BcfFilterArgs) -> Self {
         Self {
             chr_vec: vec![],
             pos_vec: vec![],
-            dom_vec: vec![],
+            gt_vec: vec![],
             sample_vec: vec![],
             chrname_map: HashMap::new(),
             selected_samples: vec![],
@@ -110,13 +110,7 @@ impl DominantGenotype {
         }
     }
     fn read_dom(&mut self, bcf_fname: &str) -> Result<Header> {
-        let reader: Box<dyn std::io::Read> = if bcf_fname == "-" {
-            Box::new(std::io::stdin().lock())
-        } else {
-            Box::new(std::fs::File::open(bcf_fname).map(BufReader::new)?)
-        };
-        let mut reader =
-            BcfReader::from_reader(ParMultiGzipReader::from_reader(reader, 3, None, None)?);
+        let mut reader = get_bcf_gzip_reader(bcf_fname)?;
         let header = reader.read_header()?;
         // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
         let mut record = Record::default();
@@ -129,27 +123,9 @@ impl DominantGenotype {
         }
         self.chrname_map = chrname_map;
 
-        // get indicators for target samples
-        let mut is_sample_targeted = vec![];
-        is_sample_targeted.resize(nsam, true);
-        if let Some(p) = self.args.target_samples.as_ref() {
-            // read target samples
-            let targets: std::collections::HashSet<_> = std::fs::read_to_string(p)?
-                .trim()
-                .split('\n')
-                .map(String::from)
-                .collect();
-            // check if each sample in vcf  is in target set
-            header
-                .get_samples()
-                .iter()
-                .enumerate()
-                .for_each(|(idx, sname)| {
-                    if !targets.contains(sname) {
-                        is_sample_targeted[idx] = false;
-                    }
-                });
-        }
+        let is_sample_targeted =
+            get_targeted_sample_indicator(&self.args, header.get_samples().as_slice())?;
+
         let nsam_in_targets: usize = is_sample_targeted.iter().map(|e| *e as usize).sum();
         self.nsam_targeted = nsam_in_targets;
         self.sample_vec.extend(
@@ -208,31 +184,20 @@ impl DominantGenotype {
                     dom_allele = indv_ad[0].0 as i8;
                     site_nonmiss_counter += 1;
                 }
-                self.dom_vec.push(dom_allele);
+                self.gt_vec.push(dom_allele);
             }
             let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
 
-            // calculate minor allele frequency based on dom_allele for this site
-            allele_counts.clear();
-            allele_counts.resize(nallele, (0, 0));
-            let mut tot_allele_counts = 0u32;
-            for a in self.dom_vec[(self.dom_vec.len() - nsam_in_targets)..].iter() {
-                let a = *a;
-                if a < 0 {
-                    continue;
-                } else {
-                    allele_counts[a as usize].1 += 1;
-                    tot_allele_counts += 1;
-                }
-            }
-            allele_counts.sort_by_key(|(_idx, cnt)| u32::MAX - cnt); // reverse sort
-            let maf = allele_counts[1].1 as f32 / tot_allele_counts as f32;
+            let maf = get_maf(
+                &self.gt_vec[(self.gt_vec.len() - nsam_in_targets)..],
+                nallele,
+                &mut allele_counts,
+            );
 
-            // at the end of the line, check if the site has too many missing dominant allele
-            // if yes remove those
+            // discard or keep current sites
             if (non_missing_rate < self.args.min_site_nonmissing) || (maf < self.args.min_maf) {
                 // remove alleles for this site
-                self.dom_vec.resize(self.dom_vec.len() - nsam_in_targets, 0);
+                self.gt_vec.resize(self.gt_vec.len() - nsam_in_targets, 0);
             } else {
                 self.chr_vec.push(record.chrom());
                 self.pos_vec.push(record.pos());
@@ -243,6 +208,228 @@ impl DominantGenotype {
             // if nrec % 1000 == 0 {
             //     eprintln!("\r{nrec}\t{nvalid}");
             // }
+        }
+        self.selected_samples.extend(0..self.sample_vec.len());
+        self.selected_sites.extend(0..self.pos_vec.len());
+        Ok(header)
+    }
+
+    fn read_first_ploidy(&mut self, bcf_fname: &str) -> Result<Header> {
+        let mut reader = get_bcf_gzip_reader(bcf_fname)?;
+        let header = reader.read_header()?;
+        // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
+        let mut record = Record::default();
+        let gt_key = header.get_idx_from_dictionary_str("FORMAT", "GT").unwrap();
+        let nsam = header.get_samples().len();
+        let mut chrname_map = HashMap::<String, usize>::new();
+        for (id, dict) in header.dict_contigs().iter() {
+            let chrname = dict["ID"].to_owned();
+            chrname_map.insert(chrname, *id);
+        }
+        self.chrname_map = chrname_map;
+
+        // -- targeted sample indicator
+        let is_sample_targeted =
+            get_targeted_sample_indicator(&self.args, header.get_samples().as_slice())?;
+        let nsam_in_targets: usize = is_sample_targeted.iter().map(|e| *e as usize).sum();
+        self.nsam_targeted = nsam_in_targets;
+
+        // --
+        self.sample_vec.extend(
+            header
+                .get_samples()
+                .iter()
+                .zip(is_sample_targeted.iter())
+                .filter(|(_sname, is_target)| **is_target)
+                .map(|(sname, _is_target)| sname.to_owned()),
+        );
+        let mut nrec = 0;
+        let mut nvalid = 0;
+
+        let mut allele_counts = Vec::<(usize, u32)>::new(); // (allele_idx, AC)
+        while reader.read_record(&mut record).is_ok() {
+            let nploidy = record.fmt_gt(&header).count() / nsam;
+            let nallele = record.n_allele() as usize;
+
+            // not segrating
+            if nallele <= 1 {
+                if nrec % 1000 == 0 {
+                    eprint!("\r{nrec}\t{nvalid}");
+                }
+                nrec += 1;
+                continue;
+            }
+
+            let mut site_nonmiss_counter = 0;
+            let chunks = record.fmt_field(gt_key).chunks(nploidy);
+            for (nv_indv, _) in chunks
+                .into_iter()
+                .zip(is_sample_targeted.iter())
+                .filter(|(_, is_target)| **is_target)
+            {
+                let mut first_ploidy_allele = -1i8;
+                nv_indv
+                    .enumerate()
+                    .try_for_each(|(iploidy, nv_res)| -> Result<()> {
+                        let (_noploidy, dot, _phased, allele) = nv_res?.gt_val();
+                        match iploidy {
+                            0 => {
+                                if !dot {
+                                    first_ploidy_allele = allele as i8;
+                                    site_nonmiss_counter += 1;
+                                }
+                            }
+                            1 => {
+                                if (!dot) && _noploidy {
+                                    return Err(Error::BcfReaderError(bcf_reader::Error::Other(
+                                        "genotype should be phased".to_owned(),
+                                    )));
+                                }
+                            }
+                            _ => {}
+                        }
+                        Ok(())
+                    })?;
+                self.gt_vec.push(first_ploidy_allele);
+            }
+            let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
+
+            let maf = get_maf(
+                &self.gt_vec[(self.gt_vec.len() - nsam_in_targets)..],
+                nallele,
+                &mut allele_counts,
+            );
+
+            // discard or keep current sites
+            if (non_missing_rate < self.args.min_site_nonmissing) || (maf < self.args.min_maf) {
+                // remove alleles for this site
+                self.gt_vec.resize(self.gt_vec.len() - nsam_in_targets, 0);
+            } else {
+                self.chr_vec.push(record.chrom());
+                self.pos_vec.push(record.pos());
+                nvalid += 1;
+            }
+
+            nrec += 1;
+            // if nrec % 1000 == 0 {
+            //     eprintln!("\r{nrec}\t{nvalid}");
+            // }
+        }
+        self.selected_samples.extend(0..self.sample_vec.len());
+        self.selected_sites.extend(0..self.pos_vec.len());
+        Ok(header)
+    }
+    fn read_each_ploidy(&mut self, bcf_fname: &str) -> Result<Header> {
+        let mut reader = get_bcf_gzip_reader(bcf_fname)?;
+        let header = reader.read_header()?;
+        // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
+        let mut record = Record::default();
+        let gt_key = header.get_idx_from_dictionary_str("FORMAT", "GT").unwrap();
+        let nsam = header.get_samples().len();
+        let mut chrname_map = HashMap::<String, usize>::new();
+        for (id, dict) in header.dict_contigs().iter() {
+            let chrname = dict["ID"].to_owned();
+            chrname_map.insert(chrname, *id);
+        }
+        self.chrname_map = chrname_map;
+
+        // -- targeted sample indicator
+        let is_sample_targeted =
+            get_targeted_sample_indicator(&self.args, header.get_samples().as_slice())?;
+        let nsam_in_targets: usize = is_sample_targeted.iter().map(|e| *e as usize).sum();
+        self.nsam_targeted = nsam_in_targets;
+
+        // --
+        let mut nrec = 0;
+        let mut nvalid = 0;
+
+        let mut allele_counts = Vec::<(usize, u32)>::new(); // (allele_idx, AC)
+        let mut nploidy_all: Option<usize> = None;
+        while reader.read_record(&mut record).is_ok() {
+            let nploidy = record.fmt_gt(&header).count() / nsam;
+
+            // check ploidy consistency
+            if nploidy_all.is_none() {
+                nploidy_all = Some(nploidy);
+            } else if nploidy_all != Some(nploidy) {
+                return Err(Error::BcfReaderError(bcf_reader::Error::Other(
+                    "number of ploidy inconsistent across sites".to_owned(),
+                )));
+            }
+
+            let nallele = record.n_allele() as usize;
+
+            // not segrating
+            if nallele <= 1 {
+                if nrec % 1000 == 0 {
+                    eprint!("\r{nrec}\t{nvalid}");
+                }
+                nrec += 1;
+                continue;
+            }
+
+            let mut site_nonmiss_counter = 0;
+            let chunks = record.fmt_field(gt_key).chunks(nploidy);
+            for (nv_indv, _) in chunks
+                .into_iter()
+                .zip(is_sample_targeted.iter())
+                .filter(|(_, is_target)| **is_target)
+            {
+                nv_indv
+                    .enumerate()
+                    .try_for_each(|(iploidy, nv_res)| -> Result<()> {
+                        let mut first_ploidy_allele = -1i8;
+                        let (noploidy, dot, _phased, allele) = nv_res?.gt_val();
+                        if !dot {
+                            first_ploidy_allele = allele as i8;
+                            site_nonmiss_counter += 1;
+                        }
+                        self.gt_vec.push(first_ploidy_allele);
+                        // checking phasing
+                        if (iploidy != 0) && (!dot) && noploidy {
+                            return Err(Error::BcfReaderError(bcf_reader::Error::Other(
+                                "genotype should be phased".to_owned(),
+                            )));
+                        }
+                        Ok(())
+                    })?;
+            }
+            let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
+
+            let maf = get_maf(
+                &self.gt_vec[(self.gt_vec.len() - nsam_in_targets * nploidy)..],
+                nallele,
+                &mut allele_counts,
+            );
+
+            // discard or keep current sites
+            if (non_missing_rate < self.args.min_site_nonmissing) || (maf < self.args.min_maf) {
+                // remove alleles for this site
+                self.gt_vec
+                    .resize(self.gt_vec.len() - nsam_in_targets * nploidy, 0);
+            } else {
+                self.chr_vec.push(record.chrom());
+                self.pos_vec.push(record.pos());
+                nvalid += 1;
+            }
+
+            nrec += 1;
+            // if nrec % 1000 == 0 {
+            //     eprintln!("\r{nrec}\t{nvalid}");
+            // }
+        }
+
+        if let Some(nploidy) = nploidy_all {
+            header
+                .get_samples()
+                .iter()
+                .zip(is_sample_targeted.iter())
+                .filter(|(_sname, is_target)| **is_target)
+                .for_each(|(sname, _is_target)| {
+                    for iploidy in 0..nploidy {
+                        self.sample_vec.push(format!("{sname}___{iploidy}"));
+                    }
+                });
         }
         self.selected_samples.extend(0..self.sample_vec.len());
         self.selected_sites.extend(0..self.pos_vec.len());
@@ -260,7 +447,7 @@ impl DominantGenotype {
         for row in sites.iter() {
             let mut cnt = 0;
             for col in samples.iter() {
-                if self.dom_vec[*row * self.nsam_targeted + col] != -1 {
+                if self.gt_vec[*row * self.nsam_targeted + col] != -1 {
                     cnt += 1;
                 };
             }
@@ -274,7 +461,7 @@ impl DominantGenotype {
         let mut count_ind = vec![0usize; samples.len()];
         for row in sites.iter() {
             for (icol, col) in samples.iter().enumerate() {
-                if self.dom_vec[*row * self.nsam_targeted + col] != -1 {
+                if self.gt_vec[*row * self.nsam_targeted + col] != -1 {
                     count_ind[icol] += 1;
                 };
             }
@@ -295,7 +482,7 @@ impl DominantGenotype {
         let mut cnt2 = 0;
         for row in self.selected_sites.iter() {
             for col in self.selected_samples.iter() {
-                if self.dom_vec[*row * self.nsam_targeted + col] != -1 {
+                if self.gt_vec[*row * self.nsam_targeted + col] != -1 {
                     cnt += 1;
                 };
                 cnt2 += 1;
@@ -326,12 +513,12 @@ impl DominantGenotype {
         );
         new_dg.nsam_targeted = nsam;
 
-        new_dg.dom_vec.reserve(nsites * nsam);
+        new_dg.gt_vec.reserve(nsites * nsam);
         for site in self.selected_sites.iter() {
             for sample in self.selected_samples.iter() {
                 new_dg
-                    .dom_vec
-                    .push(self.dom_vec[*site * self.nsam_targeted + *sample]);
+                    .gt_vec
+                    .push(self.gt_vec[*site * self.nsam_targeted + *sample]);
             }
         }
 
@@ -341,33 +528,46 @@ impl DominantGenotype {
     }
 
     pub fn new_from_processing_bcf(
-        dgt_args: &DominantGenotypeArgs,
+        bcf_read_mode: &crate::args::BcfReadMode,
+        bcf_filter_args: &BcfFilterArgs,
         bcf_path: &str,
     ) -> Result<Self> {
-        let mut dg = Self::new(dgt_args);
-        dg.read_dom(bcf_path)?;
+        use crate::args::BcfReadMode::*;
+        let mut bcf_gt = Self::new(bcf_filter_args);
+
+        match bcf_read_mode {
+            DominantAllele => {
+                bcf_gt.read_dom(bcf_path)?;
+            }
+            FirstPloidy => {
+                bcf_gt.read_first_ploidy(bcf_path)?;
+            }
+            EachPloidy => {
+                bcf_gt.read_each_ploidy(bcf_path)?;
+            }
+        };
 
         println!(
             "before filtering: n good site = {}, n good samples = {}",
-            dg.selected_sites.len(),
-            dg.selected_samples.len()
+            bcf_gt.selected_sites.len(),
+            bcf_gt.selected_samples.len()
         );
 
-        let rates = dg.args.nonmissing_rates.clone();
+        let rates = bcf_gt.args.nonmissing_rates.clone();
         for (min_site_nonmiss_rate, min_sample_nonmiss_rate) in rates {
-            dg.filter_by_missingness(min_site_nonmiss_rate, min_sample_nonmiss_rate);
-            let overall_nonmiss = dg.calc_nonmiss();
+            bcf_gt.filter_by_missingness(min_site_nonmiss_rate, min_sample_nonmiss_rate);
+            let overall_nonmiss = bcf_gt.calc_nonmiss();
             println!(
                 "min_site_nonmiss={:.3}, min_sam_nonmiss={:.3}, nsite_left = {:>6}, nsam_left={:>6}, overall_call_target_sites_samples={:.3}",
                 min_site_nonmiss_rate,
                 min_sample_nonmiss_rate,
-                dg.selected_sites.len(),
-                dg.selected_samples.len(),
+                bcf_gt.selected_sites.len(),
+                bcf_gt.selected_samples.len(),
                 overall_nonmiss,
             );
         }
 
-        Ok(dg.consolidate())
+        Ok(bcf_gt.consolidate())
     }
 
     pub fn get_samples(&self) -> &[String] {
@@ -379,10 +579,10 @@ impl DominantGenotype {
         valid_samples: &Samples,
         min_snp_sep: u32,
     ) -> (Matrix<u8>, SiteInfoRaw) {
-        let DominantGenotype {
+        let BcfGenotype {
             chr_vec,
             pos_vec,
-            dom_vec,
+            gt_vec: dom_vec,
             sample_vec,
             chrname_map,
             selected_samples: _,
@@ -458,32 +658,63 @@ impl DominantGenotype {
     }
 }
 
-// pub fn get_dominant_geotype(
-//     dgt_args: &DominantGenotypeArgs,
-//     bcf_path: impl AsRef<std::path::Path>,
-// ) -> DominantGenotype {
-//     let mut dg = DominantGenotype::new(dgt_args);
-//     dg.read_dom(bcf_path);
+// ---- helper function
 
-//     println!(
-//         "before filteing: n good site = {}, n good samples = {}",
-//         dg.selected_sites.len(),
-//         dg.selected_samples.len()
-//     );
+/// Define a type alias 'BcfGzipReader' which is a specific configuration of the generic 'BcfReader'.
+/// 'BcfReader' is instantiated with 'ParMultiGzipReader' that uses a dynamic trait object for reading from a boxed value.
+type BcfGzipReader = BcfReader<ParMultiGzipReader<Box<dyn std::io::Read>>>;
 
-//     let rates = dg.args.nonmissing_rates.clone();
-//     for (min_site_nonmiss_rate, min_sample_nonmiss_rate) in rates {
-//         dg.filter_by_missingness(min_site_nonmiss_rate, min_sample_nonmiss_rate);
-//         let overall_nonmiss = dg.calc_nonmiss();
-//         println!(
-//             "min_site_nonmiss={:.3}, min_sam_nonmiss={:.3}, nsite_left = {:>6}, nsam_left={:>6}, overall_call_target_sites_samples={:.3}",
-//             min_site_nonmiss_rate,
-//             min_sample_nonmiss_rate,
-//             dg.selected_sites.len(),
-//             dg.selected_samples.len(),
-//             overall_nonmiss,
-//         );
-//     }
+/// get bcf reader from stdin or bcf file
+fn get_bcf_gzip_reader(bcf_fname: &str) -> Result<BcfGzipReader> {
+    let reader: Box<dyn std::io::Read> = if bcf_fname == "-" {
+        Box::new(std::io::stdin().lock())
+    } else {
+        Box::new(std::fs::File::open(bcf_fname).map(BufReader::new)?)
+    };
+    let reader = BcfReader::from_reader(ParMultiGzipReader::from_reader(reader, 3, None, None)?);
+    Ok(reader)
+}
 
-//     dg.consolidate()
-// }
+/// get indicators for target samples
+fn get_targeted_sample_indicator(
+    args: &BcfFilterArgs,
+    vcf_samples: &[String],
+) -> Result<Vec<bool>> {
+    let mut is_sample_targeted = vec![];
+    let nsam = vcf_samples.len();
+    is_sample_targeted.resize(nsam, true);
+    if let Some(p) = args.target_samples.as_ref() {
+        // read target samples
+        let targets: std::collections::HashSet<_> = std::fs::read_to_string(p)?
+            .trim()
+            .split('\n')
+            .map(String::from)
+            .collect();
+        // check if each sample in vcf  is in target set
+        vcf_samples.iter().enumerate().for_each(|(idx, sname)| {
+            if !targets.contains(sname) {
+                is_sample_targeted[idx] = false;
+            }
+        });
+    }
+    Ok(is_sample_targeted)
+}
+
+/// get maf of current site
+fn get_maf(gt: &[i8], nallele: usize, allele_counts: &mut Vec<(usize, u32)>) -> f32 {
+    allele_counts.clear();
+    allele_counts.resize(nallele, (0, 0));
+    let mut tot_allele_counts = 0u32;
+    for a in gt.iter() {
+        let a = *a;
+        if a < 0 {
+            continue;
+        } else {
+            allele_counts[a as usize].1 += 1;
+            tot_allele_counts += 1;
+        }
+    }
+    allele_counts.sort_by_key(|(_idx, cnt)| u32::MAX - cnt); // reverse sort
+    let maf = allele_counts[1].1 as f32 / tot_allele_counts as f32;
+    maf
+}

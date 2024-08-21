@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     args::Arguments,
-    bcf::{self, DominantGenotype, DominantGenotypeArgs},
+    bcf::{self, BcfFilterArgs, BcfGenotype},
     genome::Genome,
     matrix::*,
     samples::{self, Samples},
@@ -220,17 +220,15 @@ impl InputData {
     }
 
     pub fn from_args(args: &Arguments) -> Result<Self, Error> {
-        let dgt = if args.from_bcf {
-            let dga = match args.dom_gt_config.as_ref() {
-                Some(dom_gt_config_path) => {
-                    DominantGenotypeArgs::new_from_toml_file(dom_gt_config_path)
-                }
+        let bcf_gt = if args.from_bcf {
+            let bcf_filter_args = match args.bcf_filter_config.as_ref() {
+                Some(dom_gt_config_path) => BcfFilterArgs::new_from_toml_file(dom_gt_config_path),
                 None => {
-                    let config = DominantGenotypeArgs::new_from_builtin()?;
+                    let config = BcfFilterArgs::new_from_builtin()?;
                     std::fs::write("tmp_dom_gt_config.toml", toml::to_string(&config)?).map_err(
                         |e| Error::Io {
                             source: e,
-                            file: args.dom_gt_config.to_owned(),
+                            file: args.bcf_filter_config.to_owned(),
                         },
                     )?;
                     eprintln!(concat!(
@@ -240,18 +238,22 @@ impl InputData {
                     Ok(config)
                 }
             }?;
-            let dgt = DominantGenotype::new_from_processing_bcf(&dga, &args.data_file1)?;
-            Some(dgt)
+            let bcf_gt = BcfGenotype::new_from_processing_bcf(
+                &args.bcf_read_mode,
+                &bcf_filter_args,
+                &args.data_file1,
+            )?;
+            Some(bcf_gt)
         } else {
             None
         };
 
-        let valid_samples = Samples::from_args(args, dgt.as_ref())?;
+        let valid_samples = Samples::from_args(args, bcf_gt.as_ref())?;
         let min_snp_sep = args.min_snp_sep;
 
         let (mut geno1, geno2, sitesinfo) = match args.from_bcf {
             true => {
-                let dgt = dgt.ok_or(bcf::Error::DominantGenotypeEmpty {
+                let dgt = bcf_gt.ok_or(bcf::Error::GenotypeEmpty {
                     file: file!(),
                     line: line!(),
                 })?;
@@ -393,7 +395,7 @@ impl InputData {
     // }
 
     fn read_data_dominant_genotype(
-        dgt: DominantGenotype,
+        dgt: BcfGenotype,
         valid_samples: &Samples,
         min_snp_sep: u32,
     ) -> (Matrix<u8>, SiteInfoRaw) {

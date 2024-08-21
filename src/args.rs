@@ -62,7 +62,7 @@ pub struct Arguments {
 
     /// Optional: when --from_bcf flag and --bcf-read-mode dominant-allele option are used, use this to specify bcf filtering config file. If not provided, a builtin filtering criteria is used.
     #[arg(long, group = "bcf_option")]
-    pub dom_gt_config: Option<String>,
+    pub bcf_filter_config: Option<String>,
 
     /// output put prefix, if not specified use the prefix as `-i` option.
     #[arg(short = 'o', long, group = "output")]
@@ -183,7 +183,7 @@ impl Arguments {
             data_file1: String::from("samp_data/pf3k_Cambodia_13.txt"),
             data_file2: Some(String::from("samp_data/pf3k_Ghana_13.txt")),
             from_bcf: false,
-            dom_gt_config: None,
+            bcf_filter_config: None,
             freq_file1: Some(String::from("samp_data/freqs_pf3k_Cambodia_13.txt")),
             freq_file2: Some(String::from("samp_data/freqs_pf3k_Ghana_13.txt")),
             max_iter: 5,
@@ -221,7 +221,7 @@ impl Arguments {
             data_file1: String::from("pf7_data/pf7_chr1_20samples_maf0.01.bcf"),
             data_file2: None,
             from_bcf: true,
-            dom_gt_config: Some(String::from("pf7_data/dom_gt_config.toml")),
+            bcf_filter_config: Some(String::from("pf7_data/dom_gt_config.toml")),
             freq_file1: None,
             freq_file2: None,
             max_iter: 5,

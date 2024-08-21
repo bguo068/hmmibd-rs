@@ -3,7 +3,7 @@ use std::{
     io::{BufRead, BufReader, Read},
 };
 
-use crate::{args::Arguments, bcf::DominantGenotype};
+use crate::{args::Arguments, bcf::BcfGenotype};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -45,7 +45,7 @@ impl Samples {
             pop2_nsam,
         }
     }
-    pub fn from_args(args: &Arguments, dgt: Option<&DominantGenotype>) -> Result<Self, Error> {
+    pub fn from_args(args: &Arguments, dgt: Option<&BcfGenotype>) -> Result<Self, Error> {
         let mut s = String::new();
         // get bad samples
         let mut bad_samples = HashSet::<String>::new();

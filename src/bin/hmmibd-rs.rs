@@ -13,21 +13,24 @@ fn main() -> Result<()> {
     let buffer_size_segments = cli.buffer_size_segments;
     let buffer_size_frac = cli.buffer_size_frac;
 
-    if (!cli.from_bcf) && (cli.data_file1 == "-") {
-        Err(data::Error::CliArgError(
-            "reading from stdin is currently only supported when --from-bcf is used",
-        ))?;
-    }
-    if (cli.data_file1 == "-") && (cli.output.is_none()) {
-        Err(data::Error::CliArgError(
-            "when reading from stdin is specified, --output should be specified as it cannot be inferred",
-        ))?;
+    if cli.data_file1 == "-" {
+        if !cli.from_bcf {
+            return Err(data::Error::CliArgError(
+                "Reading from stdin is currently only supported when --from-bcf is used",
+            )
+            .into());
+        }
+
+        if cli.output.is_none() {
+            return Err(data::Error::CliArgError(
+                "When reading from stdin is specified, --output should be specified as it cannot be inferred",
+            ).into());
+        }
     }
 
     let outfiles = OutputFiles::new_from_args(&cli, buffer_size_segments, buffer_size_frac)?;
     let input = InputData::from_args(&cli)?;
-    // println!("{:?}", &input.sites);
-    eprintln!("{:?}", &input.args);
+    eprintln!("{:#?}", &input.args);
 
     // use local theadpool instead of global threadpool
     // so that the number of threads used in this instance
