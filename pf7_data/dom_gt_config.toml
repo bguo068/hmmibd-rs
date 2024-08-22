@@ -1,5 +1,8 @@
 min_depth = 5
 min_ratio = 0.7
+min_maf = 0.01
+filter_column_pass_only = true
+major_minor_alleles_must_be_snps = true
 min_r1_r2 = 3.0
 min_site_nonmissing = 0.1
 nonmissing_rates= [

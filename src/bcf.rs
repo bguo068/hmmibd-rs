@@ -18,6 +18,8 @@ pub struct BcfFilterArgs {
     pub min_ratio: f32,
     pub min_maf: f32,
     pub min_r1_r2: f32,
+    pub filter_column_pass_only: bool,
+    pub major_minor_alleles_must_be_snps: bool,
     pub min_site_nonmissing: f32,
     pub nonmissing_rates: Vec<(f32, f32)>,
     pub target_samples: Option<std::path::PathBuf>,
@@ -62,12 +64,9 @@ min_ratio = 0.7
 min_r1_r2 = 3.0
 min_maf = 0.01
 min_site_nonmissing = 0.1
+filter_column_pass_only = true
+major_minor_alleles_must_be_snps = true
 nonmissing_rates= [
-    [0.05, 0.025],
-    [0.11, 0.55 ],
-    [0.15, 0.075],
-    [0.21, 0.105],
-    [0.25, 0.125],
     [0.31, 0.155],
     [0.35, 0.175],
     [0.41, 0.205],
@@ -161,8 +160,11 @@ impl BcfGenotype {
         while reader.read_record(&mut record).is_ok() {
             let nallele = record.n_allele() as usize;
 
-            // not segrating
-            if nallele <= 1 {
+            // not segrating or if not pass in filter columns
+            if (nallele <= 1)
+                || (self.args.filter_column_pass_only
+                    && (!is_variant_pass_in_filter_columns(&header, &record)?))
+            {
                 if nrec % 1000 == 0 {
                     eprint!("\r{nrec}\t{nvalid}");
                 }
@@ -205,14 +207,18 @@ impl BcfGenotype {
             }
             let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
 
-            let maf = get_maf(
+            let maf = get_maf_and_sorted_allele_count(
                 &self.gt_vec[(self.gt_vec.len() - nsam_in_targets)..],
                 nallele,
                 &mut allele_counts,
             );
+            let is_major_minor_snps = is_major_and_minor_allele_snps(&record, &allele_counts);
 
             // discard or keep current sites
-            if (non_missing_rate < self.args.min_site_nonmissing) || (maf < self.args.min_maf) {
+            if (non_missing_rate < self.args.min_site_nonmissing)
+                || (maf < self.args.min_maf)
+                || (self.args.major_minor_alleles_must_be_snps && (!is_major_minor_snps))
+            {
                 // remove alleles for this site
                 self.gt_vec.resize(self.gt_vec.len() - nsam_in_targets, 0);
             } else {
@@ -271,8 +277,11 @@ impl BcfGenotype {
             let nploidy = record.fmt_gt(&header).count() / nsam;
             let nallele = record.n_allele() as usize;
 
-            // not segrating
-            if nallele <= 1 {
+            // not segrating or if not pass in filter columns
+            if (nallele <= 1)
+                || (self.args.filter_column_pass_only
+                    && (!is_variant_pass_in_filter_columns(&header, &record)?))
+            {
                 if nrec % 1000 == 0 {
                     eprint!("\r{nrec}\t{nvalid}");
                 }
@@ -314,14 +323,18 @@ impl BcfGenotype {
             }
             let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
 
-            let maf = get_maf(
+            let maf = get_maf_and_sorted_allele_count(
                 &self.gt_vec[(self.gt_vec.len() - nsam_in_targets)..],
                 nallele,
                 &mut allele_counts,
             );
+            let is_major_minor_snps = is_major_and_minor_allele_snps(&record, &allele_counts);
 
             // discard or keep current sites
-            if (non_missing_rate < self.args.min_site_nonmissing) || (maf < self.args.min_maf) {
+            if (non_missing_rate < self.args.min_site_nonmissing)
+                || (maf < self.args.min_maf)
+                || (self.args.major_minor_alleles_must_be_snps && (!is_major_minor_snps))
+            {
                 // remove alleles for this site
                 self.gt_vec.resize(self.gt_vec.len() - nsam_in_targets, 0);
             } else {
@@ -369,26 +382,27 @@ impl BcfGenotype {
         let mut allele_counts = Vec::<(usize, u32)>::new(); // (allele_idx, AC)
         let mut nploidy_all: Option<usize> = None;
         while reader.read_record(&mut record).is_ok() {
-            let nploidy = record.fmt_gt(&header).count() / nsam;
+            // not segrating or if not pass in filter columns
+            let nallele = record.n_allele() as usize;
+            if (nallele <= 1)
+                || (self.args.filter_column_pass_only
+                    && (!is_variant_pass_in_filter_columns(&header, &record)?))
+            {
+                if nrec % 1000 == 0 {
+                    eprint!("\r{nrec}\t{nvalid}");
+                }
+                nrec += 1;
+                continue;
+            }
 
             // check ploidy consistency
+            let nploidy = record.fmt_gt(&header).count() / nsam;
             if nploidy_all.is_none() {
                 nploidy_all = Some(nploidy);
             } else if nploidy_all != Some(nploidy) {
                 return Err(Error::BcfReaderError(bcf_reader::Error::Other(
                     "number of ploidy inconsistent across sites".to_owned(),
                 )));
-            }
-
-            let nallele = record.n_allele() as usize;
-
-            // not segrating
-            if nallele <= 1 {
-                if nrec % 1000 == 0 {
-                    eprint!("\r{nrec}\t{nvalid}");
-                }
-                nrec += 1;
-                continue;
             }
 
             let mut site_nonmiss_counter = 0;
@@ -419,14 +433,18 @@ impl BcfGenotype {
             }
             let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
 
-            let maf = get_maf(
+            let maf = get_maf_and_sorted_allele_count(
                 &self.gt_vec[(self.gt_vec.len() - nsam_in_targets * nploidy)..],
                 nallele,
                 &mut allele_counts,
             );
+            let is_major_minor_snps = is_major_and_minor_allele_snps(&record, &allele_counts);
 
             // discard or keep current sites
-            if (non_missing_rate < self.args.min_site_nonmissing) || (maf < self.args.min_maf) {
+            if (non_missing_rate < self.args.min_site_nonmissing)
+                || (maf < self.args.min_maf)
+                || (self.args.major_minor_alleles_must_be_snps && (!is_major_minor_snps))
+            {
                 // remove alleles for this site
                 self.gt_vec
                     .resize(self.gt_vec.len() - nsam_in_targets * nploidy, 0);
@@ -792,7 +810,11 @@ fn get_targeted_sample_indicator(
 }
 
 /// get maf of current site
-fn get_maf(gt: &[i8], nallele: usize, allele_counts: &mut Vec<(usize, u32)>) -> f32 {
+fn get_maf_and_sorted_allele_count(
+    gt: &[i8],
+    nallele: usize,
+    allele_counts: &mut Vec<(usize, u32)>,
+) -> f32 {
     allele_counts.clear();
     allele_counts.resize(nallele, (0, 0));
     let mut tot_allele_counts = 0u32;
@@ -808,4 +830,48 @@ fn get_maf(gt: &[i8], nallele: usize, allele_counts: &mut Vec<(usize, u32)>) -> 
     allele_counts.sort_by_key(|(_idx, cnt)| u32::MAX - cnt); // reverse sort
     let maf = allele_counts[1].1 as f32 / tot_allele_counts as f32;
     maf
+}
+
+fn is_major_and_minor_allele_snps(
+    record: &bcf_reader::Record,
+    allele_counts: &[(usize, u32)],
+) -> bool {
+    let rngs = record.alleles();
+    let rng = &rngs[allele_counts[0].0];
+    let major_allele = &record.buf_shared()[rng.start..rng.end];
+    let rng = &rngs[allele_counts[1].0];
+    let minor_allele = &record.buf_shared()[rng.start..rng.end];
+    if (major_allele.len() > 1)
+        || (major_allele[0] == b'*')
+        || (minor_allele.len() > 1)
+        || (minor_allele[0] == b'*')
+    {
+        false
+    } else {
+        true
+    }
+}
+
+/// test if current site has no filter or pass filter
+fn is_variant_pass_in_filter_columns(
+    header: &bcf_reader::Header,
+    record: &bcf_reader::Record,
+) -> Result<bool> {
+    let mut pass = true;
+    record
+        .filters()
+        .into_iter()
+        .try_for_each(|nv_res| -> Result<()> {
+            let fmt_idx = nv_res?
+                .int_val()
+                .ok_or(bcf_reader::Error::NumericaValueEmptyInt)?
+                as usize;
+            let filter_name = header.dict_strings()[&fmt_idx]["ID"].as_str();
+            if filter_name != "PASS" {
+                pass = false;
+            }
+            Ok(())
+        })?;
+
+    Ok(pass)
 }
