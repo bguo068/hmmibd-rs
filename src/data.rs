@@ -230,15 +230,14 @@ impl InputData {
                 Some(dom_gt_config_path) => BcfFilterArgs::new_from_toml_file(dom_gt_config_path),
                 None => {
                     let config = BcfFilterArgs::new_from_builtin()?;
-                    std::fs::write("tmp_dom_gt_config.toml", toml::to_string(&config)?).map_err(
-                        |e| Error::Io {
+                    std::fs::write("tmp_bcf_filter_config.toml", toml::to_string(&config)?)
+                        .map_err(|e| Error::Io {
                             source: e,
                             file: args.bcf_filter_config.to_owned(),
-                        },
-                    )?;
+                        })?;
                     eprintln!(concat!(
-                        "WARN: --dom-gt-config not specified, a builtin configuration is used",
-                        " and is written to 'tmp_dom_gt_config.toml'",
+                        "WARN: bcf_filter_config not specified, a builtin configuration is used",
+                        " and is written to 'tmp_bcf_filter_config.toml'",
                     ));
                     Ok(config)
                 }
