@@ -131,7 +131,6 @@ impl BcfGenotype {
         // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
         let mut record = Record::default();
         let ad_key = header.get_idx_from_dictionary_str("FORMAT", "AD").unwrap();
-        let nsam = header.get_samples().len();
         let mut chrname_map = HashMap::<String, usize>::new();
         for (id, dict) in header.dict_contigs().iter() {
             let chrname = dict["ID"].to_owned();
@@ -205,7 +204,7 @@ impl BcfGenotype {
                 }
                 self.gt_vec.push(dom_allele);
             }
-            let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
+            let non_missing_rate = site_nonmiss_counter as f32 / nsam_in_targets as f32;
 
             let maf = get_maf_and_sorted_allele_count(
                 &self.gt_vec[(self.gt_vec.len() - nsam_in_targets)..],
@@ -321,7 +320,7 @@ impl BcfGenotype {
                     })?;
                 self.gt_vec.push(first_ploidy_allele);
             }
-            let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
+            let non_missing_rate = site_nonmiss_counter as f32 / nsam_in_targets as f32;
 
             let maf = get_maf_and_sorted_allele_count(
                 &self.gt_vec[(self.gt_vec.len() - nsam_in_targets)..],
@@ -431,7 +430,7 @@ impl BcfGenotype {
                         Ok(())
                     })?;
             }
-            let non_missing_rate = site_nonmiss_counter as f32 / nsam as f32;
+            let non_missing_rate = site_nonmiss_counter as f32 / nsam_in_targets as f32;
 
             let maf = get_maf_and_sorted_allele_count(
                 &self.gt_vec[(self.gt_vec.len() - nsam_in_targets * nploidy)..],
@@ -709,6 +708,7 @@ impl BcfGenotype {
     pub fn save_to_file(&self, output: &str) -> Result<()> {
         let writer = std::fs::File::create(output).map(BufWriter::new)?;
         bincode::serialize_into(writer, &self)?;
+        eprintln!("Write file: {:?}", &output);
         Ok(())
     }
 

@@ -257,7 +257,7 @@ impl InputData {
                 )?;
             }
             // check if --bcf-to-bin-file
-            if args.bcf_to_bin_file_by_chromosome {
+            if args.bcf_to_bin_file {
                 let output_prefix = args
                     .output
                     .as_ref()
