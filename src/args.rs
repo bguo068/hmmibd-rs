@@ -13,11 +13,16 @@ pub struct Arguments {
     /// footing. The variants must be in chromosome and position order, and can
     /// have between two and eight alleles (more, if you feel like changing
     /// max_allele).
-    #[arg(short = 'i', long, required = true)]
+    #[arg(short = 'i', long, required = true, help_heading = "input data")]
     pub data_file1: String,
 
     /// Optional: file of genotype data from a second population
-    #[arg(short = 'I', long, group = "grp_data_file2")]
+    #[arg(
+        short = 'I',
+        long,
+        group = "grp_data_file2",
+        help_heading = "input data"
+    )]
     pub data_file2: Option<String>,
 
     ///  Optional: File of allele frequencies for the sample population. Format:
@@ -26,24 +31,29 @@ pub struct Arguments {
     ///  ... The genotype and frequency files must contain exactly the same
     ///  variants, in the same order. If no file is supplied, allele frequencies
     ///  are calculated from the input data file.
-    #[arg(short = 'f', long)]
+    #[arg(short = 'f', long, help_heading = "input data")]
     pub freq_file1: Option<String>,
 
     ///  Optional: File of allele frequencies for the second population; same format as
     ///  for -f
-    #[arg(short = 'F', long, requires = "grp_data_file2")]
+    #[arg(
+        short = 'F',
+        long,
+        requires = "grp_data_file2",
+        help_heading = "input data"
+    )]
     pub freq_file2: Option<String>,
 
     /// Optional: file of sample ids to exclude from all analysis. Format: no header, one
     /// id (string) per row. Note: b stands for "bad samples"
-    #[arg(short = 'b', long)]
+    #[arg(short = 'b', long, help_heading = "input data")]
     pub bad_file: Option<String>,
 
     ///  Optional: File of sample pairs to analyze; all others are not processed by the HMM
     ///  (but are still used to calculate allele frequencies). Format: no header,
     ///  tab-delimited, two sample ids (strings) per row. Note: "g" stands for
     ///  "good pairs".
-    #[arg(short = 'g', long)]
+    #[arg(short = 'g', long, help_heading = "input data")]
     pub good_file: Option<String>,
 
     // ---- bcf file
@@ -52,12 +62,18 @@ pub struct Arguments {
         long,
         default_value_t = false,
         group = "input_format",
-        group = "grp_from_bcf"
+        group = "grp_from_bcf",
+        help_heading = "input data option"
     )]
     pub from_bcf: bool,
 
     /// Optional: flag indicating whether the input file is binary genotype data
-    #[arg(long, default_value_t = false, group = "input_format")]
+    #[arg(
+        long,
+        default_value_t = false,
+        group = "input_format",
+        help_heading = "input data option"
+    )]
     pub from_bin: bool,
 
     /// Optional: Read mode for the Bcf input
@@ -65,38 +81,39 @@ pub struct Arguments {
         long,
         value_enum,
         default_value = "dominant-allele",
-        requires("grp_from_bcf")
+        requires("grp_from_bcf"),
+        help_heading = "input data option"
     )]
     pub bcf_read_mode: BcfReadMode,
 
     /// Optional: when --from_bcf flag and --bcf-read-mode dominant-allele option are used, use this to specify bcf filtering config file. If not provided, a builtin filtering criteria is used.
-    #[arg(long, requires = "grp_from_bcf")]
+    #[arg(long, requires = "grp_from_bcf", help_heading = "input data option")]
     pub bcf_filter_config: Option<String>,
 
     /// output put prefix, if not specified use the prefix as `-i` option.
-    #[arg(short = 'o', long)]
+    #[arg(short = 'o', long, help_heading = "output data")]
     pub output: Option<String>,
 
     /// whether suppress frac output. Toggle this on for minimal IO burden when
     /// only IBD segment output is needed
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = false, help_heading = "output option")]
     pub suppress_frac: bool,
 
     /// Applied with the `--from-bcf` option. When enabled, genotypes are
     /// written to a binary file by chromosome. Chromosomes with no sites are
     /// ignored. When this is set, hmmibd inference is skipped.
-    #[arg(long, requires = "grp_from_bcf")]
+    #[arg(long, requires = "grp_from_bcf", help_heading = "output option")]
     pub bcf_to_bin_file_by_chromosome: bool,
 
     /// Used with the --from-bcf option. When set, the genotype data for all
     /// chromosomes will be written to a single bin file. Chromosomes with zero
     /// sites will be ignored. When this is set, hmmibd will be skipped.
-    #[arg(long, requires = "grp_from_bcf")]
+    #[arg(long, requires = "grp_from_bcf", help_heading = "output option")]
     pub bcf_to_bin_file: bool,
 
     // ---- hmm options
     /// Optional: Maximum number of fit iterations
-    #[arg(short = 'm', long, default_value = "5")]
+    #[arg(short = 'm', long, default_value = "5", help_heading = "hmm option")]
     pub max_iter: u32,
 
     ///  Optional: Cap on the number of generations (floating point). Sets the maximum
@@ -106,44 +123,44 @@ pub struct Arguments {
     ///  the program to assume little recombination and thus a low transition
     ///  rate; otherwise it will identify the small blocks of LD as ancient IBD,
     ///  and will force the number of generations to be large.
-    #[arg(short = 'n', long, default_value = "Inf")]
+    #[arg(short = 'n', long, default_value = "Inf", help_heading = "hmm option")]
     pub k_rec_max: f64,
 
     /// error rate in genotype calls
-    #[arg(long, default_value_t = 0.001)]
+    #[arg(long, default_value_t = 0.001, help_heading = "hmm option")]
     pub eps: f64,
 
     /// minimum number of informative sites in a pairwise comparison (those
     /// with minor allele)
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 10, help_heading = "hmm option")]
     pub min_inform: u32,
 
     /// minimum discordance rate in comparison; set > 0 to skip identical pairs
-    #[arg(long, default_value_t = 0.0)]
+    #[arg(long, default_value_t = 0.0, help_heading = "hmm option")]
     pub min_discord: f64,
 
     /// maximum discordance rate in comparison; set < 1 to skip unrelated pairs
-    #[arg(long, default_value_t = 1.0)]
+    #[arg(long, default_value_t = 1.0, help_heading = "hmm option")]
     pub max_discord: f64,
 
     /// skip next snp(s) if too close to last one; in bp
-    #[arg(long, default_value_t = 5)]
+    #[arg(long, default_value_t = 5, help_heading = "hmm option")]
     pub min_snp_sep: u32,
 
     /// covergence criteria: min delta pi
-    #[arg(long, default_value_t = 0.001)]
+    #[arg(long, default_value_t = 0.001, help_heading = "hmm option")]
     pub fit_thresh_dpi: f64,
 
     /// covergence criteria: min delta k_rec
-    #[arg(long, default_value_t = 0.01)]
+    #[arg(long, default_value_t = 0.01, help_heading = "hmm option")]
     pub fit_thresh_dk: f64,
 
     /// covergence criteria: min (delta k_rec) / k_rec
-    #[arg(long, default_value_t = 0.001)]
+    #[arg(long, default_value_t = 0.001, help_heading = "hmm option")]
     pub fit_thresh_drelk: f64,
 
     /// max number of unique alleles per site
-    #[arg(long, default_value_t = 8)]
+    #[arg(long, default_value_t = 8, help_heading = "memory option")]
     pub max_all: u32,
 
     // ---- recombination rate and rate map
@@ -155,39 +172,39 @@ pub struct Arguments {
     /// When IO is slow or not working well for writing many small chunks of data, it can
     /// be beneficial to set this to a larger value to reduce of the number  of
     /// times to call system IO operation
-    #[arg(long)]
+    #[arg(long, help_heading = "memory option")]
     pub buffer_size_segments: Option<usize>,
 
     /// output buffer size for IBD fraction records,  by default it is 8Kb.
     /// used similarly to --buffer-size-segments option
-    #[arg(long)]
+    #[arg(long, help_heading = "memory option")]
     pub buffer_size_frac: Option<usize>,
 
     // -- ibdseg filtering
     /// filtering IBD segments: if set, none of IBD/DBD segments short than
     /// filt_min_seg_cm will not be written to hmm.txt files
-    #[arg(long)]
+    #[arg(long, help_heading = "output segment filtering option")]
     pub filt_min_seg_cm: Option<f64>,
     /// filtering IBD segments: if set, none of IBD/DBD segments from pairs with
     /// k_rec > filt_max_tmrca will not be written to hmm.txt files
-    #[arg(long)]
+    #[arg(long, help_heading = "output segment filtering option")]
     pub filt_max_tmrca: Option<f64>,
     /// filtering IBD segments: if set, no DBD (non-IBD) segments will not be written to hmm.txt files
-    #[arg(long)]
+    #[arg(long, help_heading = "output segment filtering option")]
     pub filt_ibd_only: bool,
 
     // ---- parallelization
     /// number of threads. 0 : use all cpus; non-zero: use the given numbers of threads
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, help_heading = "parallelization option")]
     pub num_threads: usize,
 
     /// par_mode: 0, chunks of sample pairs; 1, pairs of chunks.
-    #[arg(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0, help_heading = "parallelization option")]
     pub par_mode: u8,
 
     /// number of pairs of samples per chunk for parallelization mode 0, or
     /// number of samples per chunk for parallelization mode 1
-    #[arg(long, default_value_t = 120)]
+    #[arg(long, default_value_t = 120, help_heading = "parallelization option")]
     pub par_chunk_size: u32,
 }
 
@@ -292,12 +309,13 @@ pub struct RecombinationArg {
         short = 'r',
         long,
         default_value_t = 7.4e-7,
-        group = "recombination_options"
+        group = "recombination_options",
+        help_heading = "hmm option"
     )]
     pub rec_rate: f64,
     /// genome file which specifies chromosome size, names, and plink genetic map file paths.
     ///  When used --rec-rate should not be specified.
-    #[arg(long, group = "recombination_options")]
+    #[arg(long, group = "recombination_options", help_heading = "hmm option")]
     pub genome: Option<String>,
 }
 
