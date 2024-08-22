@@ -1,7 +1,10 @@
 use bcf_reader::*;
 use itertools::{EitherOrBoth, Itertools};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::BufReader};
+use std::{
+    collections::HashMap,
+    io::{BufReader, BufWriter},
+};
 
 use crate::{
     matrix::{Matrix, MatrixBuilder},
@@ -35,6 +38,15 @@ pub enum Error {
 
     #[error("genotype is empty: {file}:{line}")]
     GenotypeEmpty { file: &'static str, line: u32 },
+
+    #[error("bcf genotype object is not ready")]
+    BcfGenotypeNotReady,
+
+    #[error("bcf genotype object is not empty")]
+    BcfGenotypeNotEmpty,
+
+    #[error("bincode error: {0:?}")]
+    BincodeErr(#[from] bincode::Error),
 }
 
 impl BcfFilterArgs {
@@ -82,7 +94,7 @@ nonmissing_rates= [
     }
 }
 
-#[derive(Default, Deserialize, Debug)]
+#[derive(Default, Deserialize, Debug, Serialize)]
 pub struct BcfGenotype {
     chr_vec: Vec<i32>,
     pos_vec: Vec<i32>,
@@ -93,6 +105,7 @@ pub struct BcfGenotype {
     selected_sites: Vec<usize>,
     nsam_targeted: usize,
     args: BcfFilterArgs,
+    ready_to_use: bool,
 }
 
 impl BcfGenotype {
@@ -107,9 +120,13 @@ impl BcfGenotype {
             selected_sites: vec![],
             nsam_targeted: 0,
             args: bcffilter_args.clone(),
+            ready_to_use: false,
         }
     }
     fn read_dom(&mut self, bcf_fname: &str) -> Result<Header> {
+        if self.ready_to_use {
+            return Err(Error::BcfGenotypeNotEmpty);
+        }
         let mut reader = get_bcf_gzip_reader(bcf_fname)?;
         let header = reader.read_header()?;
         // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
@@ -215,6 +232,9 @@ impl BcfGenotype {
     }
 
     fn read_first_ploidy(&mut self, bcf_fname: &str) -> Result<Header> {
+        if self.ready_to_use {
+            return Err(Error::BcfGenotypeNotEmpty);
+        }
         let mut reader = get_bcf_gzip_reader(bcf_fname)?;
         let header = reader.read_header()?;
         // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
@@ -320,6 +340,9 @@ impl BcfGenotype {
         Ok(header)
     }
     fn read_each_ploidy(&mut self, bcf_fname: &str) -> Result<Header> {
+        if self.ready_to_use {
+            return Err(Error::BcfGenotypeNotEmpty);
+        }
         let mut reader = get_bcf_gzip_reader(bcf_fname)?;
         let header = reader.read_header()?;
         // .map_err(|e| bcf_reader::Error::ParseHeaderError(e))?;
@@ -523,6 +546,7 @@ impl BcfGenotype {
         }
 
         new_dg.chrname_map = self.chrname_map.clone();
+        new_dg.ready_to_use = true;
 
         new_dg
     }
@@ -578,7 +602,7 @@ impl BcfGenotype {
         self,
         valid_samples: &Samples,
         min_snp_sep: u32,
-    ) -> (Matrix<u8>, SiteInfoRaw) {
+    ) -> Result<(Matrix<u8>, SiteInfoRaw)> {
         let BcfGenotype {
             chr_vec,
             pos_vec,
@@ -589,7 +613,12 @@ impl BcfGenotype {
             selected_sites: _,
             nsam_targeted: nsam,
             args: _,
+            ready_to_use,
         } = self;
+
+        if !ready_to_use {
+            return Err(Error::BcfGenotypeNotReady);
+        }
 
         // rebuild the chromosome map and update chr_vec
         let mut v: Vec<(String, usize)> = chrname_map.into_iter().collect();
@@ -654,7 +683,69 @@ impl BcfGenotype {
             .collect();
         let siteinfo = SiteInfoRaw::from_parts(chrname_vec, chrname_map, chr_pos_vec, chr_idx_vec);
 
-        (geno1, siteinfo)
+        Ok((geno1, siteinfo))
+    }
+
+    pub fn save_to_file(&self, output: &str) -> Result<()> {
+        let writer = std::fs::File::create(output).map(BufWriter::new)?;
+        bincode::serialize_into(writer, &self)?;
+        Ok(())
+    }
+
+    pub fn load_from_file(input: &str) -> Result<Self> {
+        let reader = std::fs::File::open(input).map(BufReader::new)?;
+        Ok(bincode::deserialize_from(reader)?)
+    }
+
+    fn restricted_to_a_chromsome(&self, chrname: &str) -> Self {
+        let chr_id = self.chrname_map[chrname] as i32;
+
+        let chr_nsites = self
+            .chr_vec
+            .iter()
+            .filter(|chrid| **chrid == chr_id)
+            .count();
+        let mut pos_vec = Vec::with_capacity(chr_nsites);
+        let mut gt_vec = Vec::with_capacity(self.nsam_targeted * chr_nsites);
+        let mut chr_vec = Vec::with_capacity(chr_nsites);
+        let selected_sites: Vec<_> = (0..chr_nsites).collect();
+
+        self.chr_vec
+            .iter()
+            .zip(self.pos_vec.iter())
+            .zip(self.gt_vec.chunks(self.nsam_targeted))
+            .filter(|((chrid, _pos), _gt_row)| **chrid == chr_id)
+            .for_each(|((chrid, pos), gt_row)| {
+                pos_vec.push(*pos);
+                gt_vec.extend_from_slice(gt_row);
+                chr_vec.push(*chrid);
+            });
+        Self {
+            chr_vec,
+            pos_vec,
+            gt_vec,
+            sample_vec: self.sample_vec.clone(),
+            chrname_map: self.chrname_map.clone(),
+            selected_samples: self.selected_samples.clone(),
+            selected_sites,
+            nsam_targeted: self.nsam_targeted,
+            args: self.args.clone(),
+            ready_to_use: true,
+        }
+    }
+
+    pub fn split_chromosomes_into_files(&self, output_prefix: &str) -> Result<()> {
+        if let Some(parent) = std::path::Path::new(output_prefix).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        for (chrname, chrid) in self.chrname_map.iter() {
+            if self.chr_vec.iter().any(|id| *id as usize == *chrid) {
+                let bcf_gt_chr = self.restricted_to_a_chromsome(&chrname);
+                let p = format!("{output_prefix}_{chrname}.bin");
+                bcf_gt_chr.save_to_file(&p)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -671,7 +762,7 @@ fn get_bcf_gzip_reader(bcf_fname: &str) -> Result<BcfGzipReader> {
     } else {
         Box::new(std::fs::File::open(bcf_fname).map(BufReader::new)?)
     };
-    let reader = BcfReader::from_reader(ParMultiGzipReader::from_reader(reader, 3, None, None)?);
+    let reader = BcfReader::from_reader(ParMultiGzipReader::from_reader(reader, 15, None, None)?);
     Ok(reader)
 }
 

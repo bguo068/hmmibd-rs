@@ -55,6 +55,9 @@ pub enum Error {
 
     #[error("cli argument error: {0:?}")]
     CliArgError(&'static str),
+
+    #[error("cli argument error: output prefix cannot be inferred")]
+    OutputPrefixCantBeInferred,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -220,7 +223,9 @@ impl InputData {
     }
 
     pub fn from_args(args: &Arguments) -> Result<Self, Error> {
-        let bcf_gt = if args.from_bcf {
+        let bcf_gt = if args.from_bin {
+            Some(BcfGenotype::load_from_file(&args.data_file1)?)
+        } else if args.from_bcf {
             let bcf_filter_args = match args.bcf_filter_config.as_ref() {
                 Some(dom_gt_config_path) => BcfFilterArgs::new_from_toml_file(dom_gt_config_path),
                 None => {
@@ -243,6 +248,38 @@ impl InputData {
                 &bcf_filter_args,
                 &args.data_file1,
             )?;
+
+            // check if --bcf-to-bin-file-by-chromosome
+            if args.bcf_to_bin_file_by_chromosome {
+                bcf_gt.split_chromosomes_into_files(
+                    args.output
+                        .as_ref()
+                        .ok_or(Error::OutputPrefixCantBeInferred)?,
+                )?;
+            }
+            // check if --bcf-to-bin-file
+            if args.bcf_to_bin_file_by_chromosome {
+                let output_prefix = args
+                    .output
+                    .as_ref()
+                    .ok_or(Error::OutputPrefixCantBeInferred)?;
+                if let Some(parent) = std::path::Path::new(output_prefix).parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| Error::Io {
+                        source: e,
+                        file: Some(format!("{parent:?}")),
+                    })?;
+                }
+                let output = format!("{}.bin", output_prefix);
+                bcf_gt.save_to_file(&output)?;
+            }
+            if args.bcf_to_bin_file_by_chromosome || args.bcf_to_bin_file {
+                eprintln!(
+                    "WARN: --bcf-to-bin-file-xxx is/are specified; \
+                    bin file(s) have been written; hmm inference is skipped"
+                );
+                std::process::exit(0);
+            }
+
             Some(bcf_gt)
         } else {
             None
@@ -251,14 +288,14 @@ impl InputData {
         let valid_samples = Samples::from_args(args, bcf_gt.as_ref())?;
         let min_snp_sep = args.min_snp_sep;
 
-        let (mut geno1, geno2, sitesinfo) = match args.from_bcf {
+        let (mut geno1, geno2, sitesinfo) = match args.from_bcf || args.from_bin {
             true => {
                 let dgt = bcf_gt.ok_or(bcf::Error::GenotypeEmpty {
                     file: file!(),
                     line: line!(),
                 })?;
                 let (geno1, sitesinfo) =
-                    Self::read_data_dominant_genotype(dgt, &valid_samples, min_snp_sep);
+                    Self::read_data_dominant_genotype(dgt, &valid_samples, min_snp_sep)?;
                 (geno1, None, sitesinfo)
             }
             false => {
@@ -398,9 +435,10 @@ impl InputData {
         dgt: BcfGenotype,
         valid_samples: &Samples,
         min_snp_sep: u32,
-    ) -> (Matrix<u8>, SiteInfoRaw) {
+    ) -> Result<(Matrix<u8>, SiteInfoRaw), Error> {
         // check seleted_samples are correct
         dgt.into_genotype_siteinfo(valid_samples, min_snp_sep)
+            .map_err(|e| e.into())
     }
 
     fn read_data_hmmibd_format(

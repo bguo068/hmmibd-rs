@@ -28,8 +28,9 @@ fn main() -> Result<()> {
         }
     }
 
-    let outfiles = OutputFiles::new_from_args(&cli, buffer_size_segments, buffer_size_frac)?;
     let input = InputData::from_args(&cli)?;
+    let outfiles = OutputFiles::new_from_args(&cli, buffer_size_segments, buffer_size_frac)?;
+
     eprintln!("{:#?}", &input.args);
 
     // use local theadpool instead of global threadpool
@@ -69,7 +70,6 @@ fn main() -> Result<()> {
             Ok(())
         })?
     } else if cli.par_mode == 1 {
-        // eprintln!("par-mode == 1. WARN: still need to verify accuracy of IBD segments");
         use std::sync::{Arc, RwLock};
         let chunks_done = Arc::new(RwLock::new((0usize, 0usize)));
         let chunk_pairs = input.get_chunk_pairs();

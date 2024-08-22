@@ -13,11 +13,11 @@ pub struct Arguments {
     /// footing. The variants must be in chromosome and position order, and can
     /// have between two and eight alleles (more, if you feel like changing
     /// max_allele).
-    #[arg(short = 'i', long, required = true, group = "input_data")]
+    #[arg(short = 'i', long, required = true)]
     pub data_file1: String,
 
     /// Optional: file of genotype data from a second population
-    #[arg(short = 'I', long, group = "input_data")]
+    #[arg(short = 'I', long, group = "grp_data_file2")]
     pub data_file2: Option<String>,
 
     ///  Optional: File of allele frequencies for the sample population. Format:
@@ -26,56 +26,77 @@ pub struct Arguments {
     ///  ... The genotype and frequency files must contain exactly the same
     ///  variants, in the same order. If no file is supplied, allele frequencies
     ///  are calculated from the input data file.
-    #[arg(short = 'f', long, group = "input_data")]
+    #[arg(short = 'f', long)]
     pub freq_file1: Option<String>,
 
     ///  Optional: File of allele frequencies for the second population; same format as
     ///  for -f
-    #[arg(short = 'F', long, group = "input_data")]
+    #[arg(short = 'F', long, requires = "grp_data_file2")]
     pub freq_file2: Option<String>,
 
     /// Optional: file of sample ids to exclude from all analysis. Format: no header, one
     /// id (string) per row. Note: b stands for "bad samples"
-    #[arg(short = 'b', long, group = "input_data_filtering")]
+    #[arg(short = 'b', long)]
     pub bad_file: Option<String>,
 
     ///  Optional: File of sample pairs to analyze; all others are not processed by the HMM
     ///  (but are still used to calculate allele frequencies). Format: no header,
     ///  tab-delimited, two sample ids (strings) per row. Note: "g" stands for
     ///  "good pairs".
-    #[arg(short = 'g', long, group = "input_data_filtering")]
+    #[arg(short = 'g', long)]
     pub good_file: Option<String>,
 
     // ---- bcf file
     /// Optional: flag indicating whether the input file is of BCF format
-    #[arg(long, default_value_t = false, group = "bcf_option")]
+    #[arg(
+        long,
+        default_value_t = false,
+        group = "input_format",
+        group = "grp_from_bcf"
+    )]
     pub from_bcf: bool,
+
+    /// Optional: flag indicating whether the input file is binary genotype data
+    #[arg(long, default_value_t = false, group = "input_format")]
+    pub from_bin: bool,
 
     /// Optional: Read mode for the Bcf input
     #[arg(
         long,
         value_enum,
         default_value = "dominant-allele",
-        group = "bcf_option"
+        requires("grp_from_bcf")
     )]
     pub bcf_read_mode: BcfReadMode,
 
     /// Optional: when --from_bcf flag and --bcf-read-mode dominant-allele option are used, use this to specify bcf filtering config file. If not provided, a builtin filtering criteria is used.
-    #[arg(long, group = "bcf_option")]
+    #[arg(long, requires = "grp_from_bcf")]
     pub bcf_filter_config: Option<String>,
 
     /// output put prefix, if not specified use the prefix as `-i` option.
-    #[arg(short = 'o', long, group = "output")]
+    #[arg(short = 'o', long)]
     pub output: Option<String>,
 
     /// whether suppress frac output. Toggle this on for minimal IO burden when
     /// only IBD segment output is needed
-    #[arg(long, default_value_t = false, group = "output")]
+    #[arg(long, default_value_t = false)]
     pub suppress_frac: bool,
+
+    /// Applied with the `--from-bcf` option. When enabled, genotypes are
+    /// written to a binary file by chromosome. Chromosomes with no sites are
+    /// ignored. When this is set, hmmibd inference is skipped.
+    #[arg(long, requires = "grp_from_bcf")]
+    pub bcf_to_bin_file_by_chromosome: bool,
+
+    /// Used with the --from-bcf option. When set, the genotype data for all
+    /// chromosomes will be written to a single bin file. Chromosomes with zero
+    /// sites will be ignored. When this is set, hmmibd will be skipped.
+    #[arg(long, requires = "grp_from_bcf")]
+    pub bcf_to_bin_file: bool,
 
     // ---- hmm options
     /// Optional: Maximum number of fit iterations
-    #[arg(short = 'm', long, default_value = "5", group = "hmm_options")]
+    #[arg(short = 'm', long, default_value = "5")]
     pub max_iter: u32,
 
     ///  Optional: Cap on the number of generations (floating point). Sets the maximum
@@ -85,44 +106,44 @@ pub struct Arguments {
     ///  the program to assume little recombination and thus a low transition
     ///  rate; otherwise it will identify the small blocks of LD as ancient IBD,
     ///  and will force the number of generations to be large.
-    #[arg(short = 'n', long, default_value = "Inf", group = "hmm_options")]
+    #[arg(short = 'n', long, default_value = "Inf")]
     pub k_rec_max: f64,
 
     /// error rate in genotype calls
-    #[arg(long, default_value_t = 0.001, group = "hmm_options")]
+    #[arg(long, default_value_t = 0.001)]
     pub eps: f64,
 
     /// minimum number of informative sites in a pairwise comparison (those
     /// with minor allele)
-    #[arg(long, default_value_t = 10, group = "hmm_options")]
+    #[arg(long, default_value_t = 10)]
     pub min_inform: u32,
 
     /// minimum discordance rate in comparison; set > 0 to skip identical pairs
-    #[arg(long, default_value_t = 0.0, group = "hmm_options")]
+    #[arg(long, default_value_t = 0.0)]
     pub min_discord: f64,
 
     /// maximum discordance rate in comparison; set < 1 to skip unrelated pairs
-    #[arg(long, default_value_t = 1.0, group = "hmm_options")]
+    #[arg(long, default_value_t = 1.0)]
     pub max_discord: f64,
 
     /// skip next snp(s) if too close to last one; in bp
-    #[arg(long, default_value_t = 5, group = "hmm_options")]
+    #[arg(long, default_value_t = 5)]
     pub min_snp_sep: u32,
 
     /// covergence criteria: min delta pi
-    #[arg(long, default_value_t = 0.001, group = "hmm_options")]
+    #[arg(long, default_value_t = 0.001)]
     pub fit_thresh_dpi: f64,
 
     /// covergence criteria: min delta k_rec
-    #[arg(long, default_value_t = 0.01, group = "hmm_options")]
+    #[arg(long, default_value_t = 0.01)]
     pub fit_thresh_dk: f64,
 
     /// covergence criteria: min (delta k_rec) / k_rec
-    #[arg(long, default_value_t = 0.001, group = "hmm_options")]
+    #[arg(long, default_value_t = 0.001)]
     pub fit_thresh_drelk: f64,
 
     /// max number of unique alleles per site
-    #[arg(long, default_value_t = 8, group = "hmm_options")]
+    #[arg(long, default_value_t = 8)]
     pub max_all: u32,
 
     // ---- recombination rate and rate map
@@ -134,39 +155,40 @@ pub struct Arguments {
     /// When IO is slow or not working well for writing many small chunks of data, it can
     /// be beneficial to set this to a larger value to reduce of the number  of
     /// times to call system IO operation
-    #[arg(long, group = "memory_buffering_option")]
+    #[arg(long)]
     pub buffer_size_segments: Option<usize>,
 
     /// output buffer size for IBD fraction records,  by default it is 8Kb.
     /// used similarly to --buffer-size-segments option
-    #[arg(long, group = "memory_buffering_option")]
+    #[arg(long)]
     pub buffer_size_frac: Option<usize>,
 
     // -- ibdseg filtering
     /// filtering IBD segments: if set, none of IBD/DBD segments short than
     /// filt_min_seg_cm will not be written to hmm.txt files
-    #[arg(long, group = "ibdseg_filter_option")]
+    #[arg(long)]
     pub filt_min_seg_cm: Option<f64>,
     /// filtering IBD segments: if set, none of IBD/DBD segments from pairs with
     /// k_rec > filt_max_tmrca will not be written to hmm.txt files
-    #[arg(long, group = "ibdseg_filter_option")]
+    #[arg(long)]
     pub filt_max_tmrca: Option<f64>,
     /// filtering IBD segments: if set, no DBD (non-IBD) segments will not be written to hmm.txt files
-    #[arg(long, group = "ibdseg_filter_option")]
+    #[arg(long)]
     pub filt_ibd_only: bool,
 
     // ---- parallelization
     /// number of threads. 0 : use all cpus; non-zero: use the given numbers of threads
-    #[arg(long, default_value_t = 0, group = "parallel_option")]
+    #[arg(long, default_value_t = 0)]
     pub num_threads: usize,
 
-    /// number of pairs of samples per chunk for parallelization
-    #[arg(long, default_value_t = 120, group = "parallel_option")]
-    pub par_chunk_size: u32,
-
     /// par_mode: 0, chunks of sample pairs; 1, pairs of chunks.
-    #[arg(long, default_value_t = 0, group = "parallel_option")]
+    #[arg(long, default_value_t = 0)]
     pub par_mode: u8,
+
+    /// number of pairs of samples per chunk for parallelization mode 0, or
+    /// number of samples per chunk for parallelization mode 1
+    #[arg(long, default_value_t = 120)]
+    pub par_chunk_size: u32,
 }
 
 #[derive(Default, Debug, ValueEnum, Clone, Copy)]
@@ -183,6 +205,7 @@ impl Arguments {
             data_file1: String::from("samp_data/pf3k_Cambodia_13.txt"),
             data_file2: Some(String::from("samp_data/pf3k_Ghana_13.txt")),
             from_bcf: false,
+            from_bin: false,
             bcf_filter_config: None,
             freq_file1: Some(String::from("samp_data/freqs_pf3k_Cambodia_13.txt")),
             freq_file2: Some(String::from("samp_data/freqs_pf3k_Ghana_13.txt")),
@@ -214,6 +237,8 @@ impl Arguments {
             par_chunk_size: 120,
             bcf_read_mode: Default::default(),
             par_mode: 0,
+            bcf_to_bin_file_by_chromosome: false,
+            bcf_to_bin_file: false,
         }
     }
     pub fn new_for_test_bcf() -> Self {
@@ -221,6 +246,7 @@ impl Arguments {
             data_file1: String::from("pf7_data/pf7_chr1_20samples_maf0.01.bcf"),
             data_file2: None,
             from_bcf: true,
+            from_bin: false,
             bcf_filter_config: Some(String::from("pf7_data/dom_gt_config.toml")),
             freq_file1: None,
             freq_file2: None,
@@ -252,6 +278,8 @@ impl Arguments {
             par_chunk_size: 120,
             par_mode: 0,
             bcf_read_mode: Default::default(),
+            bcf_to_bin_file_by_chromosome: false,
+            bcf_to_bin_file: false,
         }
     }
 }
