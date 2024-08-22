@@ -843,10 +843,15 @@ fn is_major_and_minor_allele_snps(
     let major_allele = &record.buf_shared()[rng.start..rng.end];
     let rng = &rngs[allele_counts[1].0];
     let minor_allele = &record.buf_shared()[rng.start..rng.end];
-    if (major_allele.len() > 1)
+    if (major_allele.len() != minor_allele.len())
         || (major_allele[0] == b'*')
-        || (minor_allele.len() > 1)
         || (minor_allele[0] == b'*')
+        || (major_allele
+            .iter()
+            .zip(minor_allele.iter())
+            .map(|(a, b)| (a != b) as usize)
+            .sum::<usize>()
+            > 1)
     {
         false
     } else {
