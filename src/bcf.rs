@@ -589,7 +589,7 @@ impl BcfGenotype {
             }
         };
 
-        bcf_gt.save_to_file("tmp.bcf.bin.before.iterative.missingness.filtering.bin")?;
+        // bcf_gt.save_to_file("tmp.bcf.bin.before.iterative.missingness.filtering.bin")?;
 
         println!(
             "before filtering: n good site = {}, n good samples = {}",
