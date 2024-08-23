@@ -272,6 +272,20 @@ impl InputData {
                 bcf_gt.save_to_file(&output)?;
             }
             if args.bcf_to_bin_file_by_chromosome || args.bcf_to_bin_file {
+                // write sample name list
+                let output_prefix = args
+                    .output
+                    .as_ref()
+                    .ok_or(Error::OutputPrefixCantBeInferred)?;
+                let output = format!("{}.samples", output_prefix);
+
+                std::fs::write(&output, bcf_gt.get_samples().join("\n")).map_err(|e| {
+                    Error::Io {
+                        source: e,
+                        file: Some(output),
+                    }
+                })?;
+
                 eprintln!(
                     "WARN: --bcf-to-bin-file-xxx is/are specified; \
                     bin file(s) have been written; hmm inference is skipped"
