@@ -219,13 +219,13 @@ pub enum BcfReadMode {
 impl Arguments {
     pub fn new_for_test() -> Self {
         Self {
-            data_file1: String::from("samp_data/pf3k_Cambodia_13.txt"),
-            data_file2: Some(String::from("samp_data/pf3k_Ghana_13.txt")),
+            data_file1: String::from("c/samp_data/pf3k_Cambodia_13.txt"),
+            data_file2: Some(String::from("c/samp_data/pf3k_Ghana_13.txt")),
             from_bcf: false,
             from_bin: false,
             bcf_filter_config: None,
-            freq_file1: Some(String::from("samp_data/freqs_pf3k_Cambodia_13.txt")),
-            freq_file2: Some(String::from("samp_data/freqs_pf3k_Ghana_13.txt")),
+            freq_file1: Some(String::from("c/samp_data/freqs_pf3k_Cambodia_13.txt")),
+            freq_file2: Some(String::from("c/samp_data/freqs_pf3k_Ghana_13.txt")),
             max_iter: 5,
             bad_file: None,
             good_file: None,

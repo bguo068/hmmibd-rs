@@ -2,4 +2,10 @@
 tmp*
 !tests/cmp_c_vs_rust.sh
 tests/*
+
+# hmmIBD binary
 hmmIBD
+
+# hmmIBD or hmmibd-rs output files
+*.hmm.txt
+*hmm_fract.txt

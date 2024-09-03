@@ -662,25 +662,25 @@ fn test_hmm() {
     // run hmmibd
     use std::process::{Command, Stdio};
     if !std::path::Path::new("hmmIBD").exists() {
-        if !std::path::Path::new("hmmIBD.c").exists() {
-            eprintln!("./hmmIBD or ./hmmIBD.c can be found in current folder");
+        if !std::path::Path::new("c/hmmIBD.c").exists() {
+            eprintln!("./hmmIBD or c/hmmIBD.c can be found in current folder");
             std::process::exit(-1);
         }
         Command::new("gcc")
-            .args(["hmmIBD.c", "-lm", "-O2", "-o", "hmmIBD"])
+            .args(["c/hmmIBD.c", "-lm", "-O2", "-o", "hmmIBD"])
             .status()
             .unwrap();
     }
     Command::new("./hmmIBD")
         .args([
             "-i",
-            "samp_data/pf3k_Cambodia_13.txt",
+            "c/samp_data/pf3k_Cambodia_13.txt",
             "-I",
-            "samp_data/pf3k_Ghana_13.txt",
+            "c/samp_data/pf3k_Ghana_13.txt",
             "-f",
-            "samp_data/freqs_pf3k_Cambodia_13.txt",
+            "c/samp_data/freqs_pf3k_Cambodia_13.txt",
             "-F",
-            "samp_data/freqs_pf3k_Ghana_13.txt",
+            "c/samp_data/freqs_pf3k_Ghana_13.txt",
             "-o",
             "tmp_hmmibd",
         ])
