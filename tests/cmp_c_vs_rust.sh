@@ -47,27 +47,27 @@ else echo failed c/samp_data ; fi
 # Compare c vs rust versions using simulated data
 
 # use a subset of data
-cut -f 1-100 ../sim_data/gt_chr1.txt          >  gt.txt
-cut -f 1-100 ../sim_data/gt_chr2.txt | sed 1d >> gt.txt
-cut -f 1-100 ../sim_data/gt_chr3.txt | sed 1d >> gt.txt
-cat ../sim_data/frq_chr{1,2,3}.txt           > frq.txt
+cut -f 1-100 ../testdata/sim_data/gt_chr1.txt          >  gt.txt
+cut -f 1-100 ../testdata/sim_data/gt_chr2.txt | sed 1d >> gt.txt
+cut -f 1-100 ../testdata/sim_data/gt_chr3.txt | sed 1d >> gt.txt
+cat ../testdata/sim_data/frq_chr{1,2,3}.txt           > frq.txt
 ./hmmIBD  -i gt.txt -f frq.txt -r 6.66667e-7 -o orig > /dev/null
 ./hmmibd-rs -i gt.txt -f frq.txt -r 6.66667e-7 -o new  > /dev/null
 diff <(sed 1d new.hmm.txt | sort ) <(sed 1d orig.hmm.txt | sort ) > diff.txt
-if [ `cat diff.txt | wc -l`  -eq 0 ] ; then echo pass sim_data subset; 
-else echo failed sim_data subset ; fi
+if [ `cat diff.txt | wc -l`  -eq 0 ] ; then echo pass testdata/sim_data subset; 
+else echo failed testdata/sim_data subset ; fi
 
 # use full data sets
-cat ../sim_data/gt_chr1.txt          >  gt.txt
-cat ../sim_data/gt_chr2.txt | sed 1d >> gt.txt
-cat ../sim_data/gt_chr3.txt | sed 1d >> gt.txt
-cat ../sim_data/frq_chr{1,2,3}.txt           > frq.txt
+cat ../testdata/sim_data/gt_chr1.txt          >  gt.txt
+cat ../testdata/sim_data/gt_chr2.txt | sed 1d >> gt.txt
+cat ../testdata/sim_data/gt_chr3.txt | sed 1d >> gt.txt
+cat ../testdata/sim_data/frq_chr{1,2,3}.txt           > frq.txt
 time ./hmmIBD  -i gt.txt -f frq.txt -r 6.66667e-7 -o orig > /dev/null # 30.0min
 time ./hmmibd-rs -i gt.txt -f frq.txt -r 6.66667e-7 -o new --max-all 2 > /dev/null # 4.5 min
 diff <(sed 1d new.hmm.txt | sort ) <(sed 1d orig.hmm.txt | sort ) > diff.txt
-if [ `cat diff.txt | wc -l`  -eq 0 ] ; then echo pass sim_data full; 
-else echo failed sim_data full ; fi
+if [ `cat diff.txt | wc -l`  -eq 0 ] ; then echo pass testdata/sim_data full; 
+else echo failed testdata/sim_data full ; fi
 
-time ./hmmibd-rs -i ../sim_data/gt_chr1.txt -r 6.66667e-7 -o chr1 --max-all 2 > /dev/null # 4.5 min
-time ./hmmibd-rs -i ../sim_data/gt_chr2.txt -r 6.66667e-7 -o chr2 --max-all 2 > /dev/null # 4.5 min
-time ./hmmibd-rs -i ../sim_data/gt_chr3.txt -r 6.66667e-7 -o chr3 --max-all 2 > /dev/null # 4.5 min
+time ./hmmibd-rs -i ../testdata/sim_data/gt_chr1.txt -r 6.66667e-7 -o chr1 --max-all 2 > /dev/null # 4.5 min
+time ./hmmibd-rs -i ../testdata/sim_data/gt_chr2.txt -r 6.66667e-7 -o chr2 --max-all 2 > /dev/null # 4.5 min
+time ./hmmibd-rs -i ../testdata/sim_data/gt_chr3.txt -r 6.66667e-7 -o chr3 --max-all 2 > /dev/null # 4.5 min

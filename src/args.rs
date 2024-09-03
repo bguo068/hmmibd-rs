@@ -260,11 +260,11 @@ impl Arguments {
     }
     pub fn new_for_test_bcf() -> Self {
         Self {
-            data_file1: String::from("pf7_data/pf7_chr1_20samples_maf0.01.bcf"),
+            data_file1: String::from("testdata/pf7_data/pf7_chr1_20samples_maf0.01.bcf"),
             data_file2: None,
             from_bcf: true,
             from_bin: false,
-            bcf_filter_config: Some(String::from("pf7_data/dom_gt_config.toml")),
+            bcf_filter_config: Some(String::from("testdata/pf7_data/dom_gt_config.toml")),
             freq_file1: None,
             freq_file2: None,
             max_iter: 5,

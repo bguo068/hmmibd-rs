@@ -57,7 +57,7 @@ impl GenomeFile {
 #[test]
 fn test_genome() {
     let mut s = String::new();
-    std::fs::File::open("sim_data/genome.toml")
+    std::fs::File::open("testdata/sim_data/genome.toml")
         .unwrap()
         .read_to_string(&mut s)
         .unwrap();
