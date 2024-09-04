@@ -154,7 +154,7 @@ $$\begin{equation}
 \delta_{t+1}(j) =  [\max_i \delta_t(i)a_{ij}] \cdot b_j(O({t+1})
 \end{equation}$$
 
-$\psi_t(j) $ is the value of $i$ that maximize $\delta$ for $t$ and $j$.
+$\psi_t(j)$ is the value of $i$ that maximize $\delta$ for $t$ and $j$.
 
 
 Steps to calculate $\delta$, $\psi$ and the best path:
@@ -175,7 +175,7 @@ $$\begin{equation}
 \end{equation}$$
 
 $$\begin{equation}
-\psi_t(j) = \argmax_{1\le i\le N} \left[ \delta_{t-1}(i)a_{ij}\right]
+\psi_t(j) = \arg\max_{1\le i\le N} \left[ \delta_{t-1}(i)a_{ij}\right]
 \end{equation}$$
     
 4. termination
@@ -185,7 +185,7 @@ P^* = \max_{1 \le i \le N} \delta_T(i)
 \end{equation}$$
 
 $$\begin{equation}
-q_T^* = \argmax_{1 \le i \le N} \delta_T(i)
+q_T^* = \arg\max_{1 \le i \le N} \delta_T(i)
 \end{equation}$$
 
 6. path backtracking

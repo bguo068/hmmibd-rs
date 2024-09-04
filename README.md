@@ -67,39 +67,36 @@ Options:
 input data:
   -i, --data-file1 <DATA_FILE1>
           File of genotype data. (1) by default, format for genotype file:
-          tab-delimited text file, with one single nucleotide polymorphism
-          (SNP) per line. The first two columns are the chromosome and
-          position, followed by one sample per column. A header line, giving
-          the sample names, is required. Genotypes are coded by number: -1
-          for missing data, 0 for the first allele, 1 for the second, etc.
-          SNPs and indels (if you trust them) can thus be treated on an
-          equal footing. The variants must be in chromosome and position
-          order, and can have between two and eight alleles (more, if you
-          feel like changing max-allele). (2) When `--from-bcf` is
-          specified, the input is expected in BCF format, either from a file
-          or stdin. If the argument is a file path, the BCF genotype is read
-          from that file. If the argument is "-", the BCF genotype is read
-          from stdin. (3) When `--from-bin` is specified, a binary genotype
-          input file is expected. See options
-          `--bcf-to-bin-file-by-chromosome` or `bcf-to-bin-file` for
-          generating binary genotype files
+          tab-delimited text file, with one single nucleotide polymorphism (SNP)
+          per line. The first two columns are the chromosome and position,
+          followed by one sample per column. A header line, giving the sample
+          names, is required. Genotypes are coded by number: -1 for missing
+          data, 0 for the first allele, 1 for the second, etc. SNPs and indels
+          (if you trust them) can thus be treated on an equal footing. The
+          variants must be in chromosome and position order, and can have
+          between two and eight alleles (more, if you feel like changing
+          max-allele). (2) When `--from-bcf` is specified, the input is expected
+          in BCF format, either from a file or stdin. If the argument is a file
+          path, the BCF genotype is read from that file. If the argument is "-",
+          the BCF genotype is read from stdin. (3) When `--from-bin` is
+          specified, a binary genotype input file is expected. See options
+          `--bcf-to-bin-file-by-chromosome` or `bcf-to-bin-file` for generating
+          binary genotype files
   -I, --data-file2 <DATA_FILE2>
           Optional: file of genotype data from a second population
   -f, --freq-file1 <FREQ_FILE1>
           Optional: File of allele frequencies for the sample population.
-          Format: tab-delimited, no header, one variant per row. Line
-          format: <chromosome (int)> <position (bp, int)> <allele 1 freq>
-          <all 2 freq> <all 3 freq> ... The genotype and frequency files
-          must contain exactly the same variants, in the same order. If no
-          file is supplied, allele frequencies are calculated from the input
-          data file
+          Format: tab-delimited, no header, one variant per row. Line format:
+          <chromosome (int)> <position (bp, int)> <allele 1 freq> <all 2 freq>
+          <all 3 freq> ... The genotype and frequency files must contain exactly
+          the same variants, in the same order. If no file is supplied, allele
+          frequencies are calculated from the input data file
   -F, --freq-file2 <FREQ_FILE2>
-          Optional: File of allele frequencies for the second population;
-          same format as for -f
+          Optional: File of allele frequencies for the second population; same
+          format as for -f
   -b, --bad-file <BAD_FILE>
-          Optional: file of sample ids to exclude from all analysis. Format:
-          no header, one id (string) per row. Note: b stands for "bad
-          samples"
+          Optional: file of sample ids to exclude from all analysis. Format: no
+          header, one id (string) per row. Note: b stands for "bad samples"
   -g, --good-file <GOOD_FILE>
           Optional: File of sample pairs to analyze; all others are not
           processed by the HMM (but are still used to calculate allele
@@ -110,41 +107,38 @@ input data options:
       --from-bcf
           Optional: flag indicating whether the input file is of BCF format
       --from-bin
-          Optional: flag indicating whether the input file is binary
-          genotype data
+          Optional: flag indicating whether the input file is binary genotype
+          data
       --bcf-read-mode <BCF_READ_MODE>
-          Optional: Read mode for the Bcf input. Currently "first-ploidy"
-          and "each-ploidy" are experimental [default: dominant-allele]
-          [possible values: dominant-allele, first-ploidy, each-ploidy]
+          Optional: Read mode for the Bcf input. Currently "first-ploidy" and
+          "each-ploidy" are experimental [default: dominant-allele] [possible
+          values: dominant-allele, first-ploidy, each-ploidy]
       --bcf-filter-config <BCF_FILTER_CONFIG>
           Optional: When the --from_bcf flag is set and the --bcf-read-mode
-          dominant-allele option (default setting) is used, this option
-          allows specifying a custom BCF filtering configuration file. If
-          not provided, a built-in filtering criteria will be used, and a
-          temporary configuration file consistent with the built-in criteria
-          named "tmp_bcf_filter_config.toml" will be generated in the
-          current folder
+          dominant-allele option (default setting) is used, this option allows
+          specifying a custom BCF filtering configuration file. If not provided,
+          a built-in filtering criteria will be used, and a temporary
+          configuration file consistent with the built-in criteria named
+          "tmp_bcf_filter_config.toml" will be generated in the current folder
 
 output data:
-  -o, --output <OUTPUT>  Optional: output prefix. If not specified, the
-                         prefix from the `-i` option will be used. Note:
-                         When reading genotype from stdin, this option must
-                         be specified
+  -o, --output <OUTPUT>  Optional: output prefix. If not specified, the prefix
+                         from the `-i` option will be used. Note: When reading
+                         genotype from stdin, this option must be specified
 
 output options:
       --suppress-frac
-          Optional: whether to suppress frac output. Toggle this on for
-          minimal IO burden when only IBD segment output is needed
+          Optional: whether to suppress frac output. Toggle this on for minimal
+          IO burden when only IBD segment output is needed
       --bcf-to-bin-file-by-chromosome
           Optional, valid only with the `--from-bcf` option. When enabled,
           genotypes are written to a binary file for each chromosome.
-          Chromosomes with no sites are ignored. When this is set, the HMM
-          IBD inference step is skipped. This option is designed to separate
-          the BCF processing step from the HMM inference step, especially
-          when genotypes of different chromosomes are concatenated for
-          sample filtering, and the user wants to split the filtering
-          genotype into chromosomes and run each instance of hmmibd-rs on a
-          chromosome in parallel
+          Chromosomes with no sites are ignored. When this is set, the HMM IBD
+          inference step is skipped. This option is designed to separate the BCF
+          processing step from the HMM inference step, especially when genotypes
+          of different chromosomes are concatenated for sample filtering, and
+          the user wants to split the filtering genotype into chromosomes and
+          run each instance of hmmibd-rs on a chromosome in parallel
       --bcf-to-bin-file
           Optional, valid only with the `--from-bcf` option. Similar to the
           `--bcf-to-bin-file-by-chromosome` option, but generates a single
@@ -154,28 +148,28 @@ hmm options:
   -m, --max-iter <MAX_ITER>
           Optional: Maximum number of fit iterations [default: 5]
   -n, --k-rec-max <K_REC_MAX>
-          Optional: Cap on the number of generations (floating point). Sets
-          the maximum value for that parameter in the fit. This is useful if
-          you are interested in recent IBD and are working with a population
-          with substantial linkage disequilbrium. Specifying a small value
-          will force the program to assume little recombination and thus a
-          low transition rate; otherwise it will identify the small blocks
-          of LD as ancient IBD, and will force the number of generations to
-          be large [default: Inf]
+          Optional: Cap on the number of generations (floating point). Sets the
+          maximum value for that parameter in the fit. This is useful if you are
+          interested in recent IBD and are working with a population with
+          substantial linkage disequilbrium. Specifying a small value will force
+          the program to assume little recombination and thus a low transition
+          rate; otherwise it will identify the small blocks of LD as ancient
+          IBD, and will force the number of generations to be large [default:
+          Inf]
       --eps <EPS>
           Optional: error rate in genotype calls [default: 0.001]
       --min-inform <MIN_INFORM>
-          Optional: minimum number of informative sites in a pairwise
-          comparison (those with minor allele) [default: 10]
+          Optional: minimum number of informative sites in a pairwise comparison
+          (those with minor allele) [default: 10]
       --min-discord <MIN_DISCORD>
-          Optional: minimum discordance rate in comparison from 0.0 to 1.0;
-          set > 0 to skip identical pairs [default: 0]
+          Optional: minimum discordance rate in comparison from 0.0 to 1.0;  set
+          > 0 to skip identical pairs [default: 0]
       --max-discord <MAX_DISCORD>
-          Optional: maximum discordance rate in comparison from 0.0 to 1.0;
-          set < 1 to skip unrelated pairs [default: 1]
+          Optional: maximum discordance rate in comparison from 0.0 to 1.0;  set
+          < 1 to skip unrelated pairs [default: 1]
       --min-snp-sep <MIN_SNP_SEP>
-          Optional: skip next snp(s) if too close to last one; in bp
-          [default: 5]
+          Optional: skip next snp(s) if too close to last one; in bp [default:
+          5]
       --fit-thresh-dpi <FIT_THRESH_DPI>
           Optional: covergence criteria: min delta pi [default: 0.001]
       --fit-thresh-dk <FIT_THRESH_DK>
@@ -184,67 +178,60 @@ hmm options:
           Optional: covergence criteria: min (delta k_rec) / k_rec [default:
           0.001]
   -r, --rec-rate <REC_RATE>
-          Optional: constant recombination rate per generation per base
-          pair. When used, --genome should not be specified [default:
-          0.00000074]
+          Optional: constant recombination rate per generation per base pair.
+          When used, --genome should not be specified [default: 0.00000074]
       --genome <GENOME>
-          Optional: Genome file specifying chromosome sizes, names, and
-          paths to PLINK genetic map files. When used, do not specify
-          --rec-rate
+          Optional: Genome file specifying chromosome sizes, names, and paths to
+          PLINK genetic map files. When used, do not specify --rec-rate
 
 memory options:
       --max-all <MAX_ALL>
-          Optional: Maximum number of unique alleles per site. For instance,
-          if the input contains only biallelic variants, setting `--max-all
-          2` could reduce memory usage and enhance computation speed by
-          utilizing a more compact memory layout [default: 8]
+          Optional: Maximum number of unique alleles per site. For instance, if
+          the input contains only biallelic variants, setting `--max-all 2`
+          could reduce memory usage and enhance computation speed by utilizing a
+          more compact memory layout [default: 8]
       --buffer-size-segments <BUFFER_SIZE_SEGMENTS>
-          Optional: output buffer size in bytes for IBD segments, by default
-          it is 8Kb. When IO is slow or not working well for writing many
-          small chunks of data, it can be beneficial to set this to a larger
-          value to reduce of the number  of times to call system IO
-          operation
+          Optional: output buffer size in bytes for IBD segments, by default it
+          is 8Kb. When IO is slow or not working well for writing many small
+          chunks of data, it can be beneficial to set this to a larger value to
+          reduce of the number  of times to call system IO operation
       --buffer-size-frac <BUFFER_SIZE_FRAC>
-          Optional: output buffer size in bytes for IBD fraction records,
-          by default it is 8Kb. used similarly to --buffer-size-segments
-          option
+          Optional: output buffer size in bytes for IBD fraction records,  by
+          default it is 8Kb. used similarly to --buffer-size-segments option
 
 output segment filtering options:
       --filt-min-seg-cm <FILT_MIN_SEG_CM>
-          Optional: filtering IBD segments. If set, IBD/non-IBD segments
-          short than FILT-MIN-SEG-CM cM will not be written to hmm.txt files
+          Optional: filtering IBD segments. If set, IBD/non-IBD segments short
+          than FILT-MIN-SEG-CM cM will not be written to hmm.txt files
       --filt-max-tmrca <FILT_MAX_TMRCA>
-          Optional: filtering IBD segments. If set, IBD/non-IBD segments
-          from pairs with k_rec > filt_max_tmrca will not be written to
-          hmm.txt files
+          Optional: filtering IBD segments. If set, IBD/non-IBD segments from
+          pairs with k_rec > filt_max_tmrca will not be written to hmm.txt files
       --filt-ibd-only
-          Optional: filtering IBD segments. If set, non-IBD segments will
-          not be written to hmm.txt files
+          Optional: filtering IBD segments. If set, non-IBD segments will not be
+          written to hmm.txt files
 
 parallelization options:
       --num-threads <NUM_THREADS>
           Optional: number of threads. "0" : use all cpus; non-zero: use the
           given numbers of threads [default: 0]
       --par-mode <PAR_MODE>
-          Optional: parallelization mode. Mode "0", chunks of sample pairs:
-          creates a vector of sample pairs, then splits it into equal
-          lengths (specified in --par-chunk-size); different threads process
-          these chunks in parallel. This model is intended for smaller
-          sample sizes. Mode "1", pairs of sample chunks: creates a vector
-          of samples, splits it into equal lengths, then creates a second
-          vector of pairs of sample chunks; different threads process these
-          pairs of sample chunks in parallel. As samples within each chunk
-          are located close to each other but those from different chunks
-          may be far apart, this mode first copies each pair of chunks to
-          the thread heap so that all samples within these pairs of chunks
-          are close to each other, aiming to better utilize memory cache
-          locality. This mode is intended for working with larger sample
-          sizes [default: 0]
+          Optional: parallelization mode. Mode "0" processes chunks of sample
+          pairs by creating a vector of sample pairs  and splitting it into
+          equal lengths, as specified by --par-chunk-size. Different threads
+          handle these chunks in parallel without coping data. This mode is
+          suitable for smaller sample sizes. Mode "1" processes pairs of sample
+          chunks by creating a vector of samples, splitting it into chunks, and
+          then creating a second vector of pairs of these chunks. Different
+          threads process these pairs of sample chunks in parallel. This mode is
+          ideal for larger sample sizes, where genotype data for sample pairs
+          may be dispersed, potentially slowing down the data reading step. To
+          address this, Mode "1" first copies each pair of chunks to the thread
+          heap, ensuring that samples within these pairs are close together,
+          thus benefiting from better memory cache locality [default: 0]
       --par-chunk-size <PAR_CHUNK_SIZE>
-          Optional: number of sample pairs per chunk for parallelization
-          mode 0, or number of samples per chunk for parallelization mode 1
-          [default: 120]
-
+          Optional: number of sample pairs per chunk for parallelization mode 0,
+          or number of samples per chunk for parallelization mode 1 [default:
+          120]
 ```
 
 ### Examples
@@ -274,6 +261,9 @@ target/release/hmmibd-rs \
     --par-chunk-size 10 \
     -o tmp  -r 6.66667e-7
 ```
+Please note there are two options for `--par-mode`. Mode 0 is generally suitable
+for small sample sizes, while mode 1 is better for large sample sizes. See the
+corresponding help message by running `hmmibd-rs -h`.
 
 3. Use recombination rate map
 

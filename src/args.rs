@@ -227,18 +227,19 @@ pub struct Arguments {
     #[arg(long, default_value_t = 0, help_heading = "parallelization options")]
     pub num_threads: usize,
 
-    /// Optional: parallelization mode. Mode "0", chunks of sample pairs: creates a
-    /// vector of sample pairs, then splits it into equal lengths (specified in
-    /// --par-chunk-size); different threads process these chunks in parallel.
-    /// This model is intended for smaller sample sizes. Mode "1", pairs of sample
-    /// chunks: creates a vector of samples, splits it into equal lengths, then
-    /// creates a second vector of pairs of sample chunks; different threads
-    /// process these pairs of sample chunks in parallel. As samples within each
-    /// chunk are located close to each other but those from different chunks
-    /// may be far apart, this mode first copies each pair of chunks to the
-    /// thread heap so that all samples within these pairs of chunks are close
-    /// to each other, aiming to better utilize memory cache locality. This mode
-    /// is intended for working with larger sample sizes.
+    /// Optional: parallelization mode. Mode "0" processes chunks of sample
+    /// pairs by creating a vector of sample pairs  and splitting it into equal
+    /// lengths, as specified by --par-chunk-size. Different threads handle
+    /// these chunks in parallel without coping data. This mode is suitable
+    /// for smaller sample sizes. Mode "1" processes pairs of sample chunks
+    /// by creating a vector of samples, splitting it into chunks, and then
+    /// creating a second vector of pairs of these chunks. Different threads
+    /// process these pairs of sample chunks in parallel. This mode is ideal
+    /// for larger sample sizes, where genotype data for sample pairs may be
+    /// dispersed, potentially slowing down the data reading step. To address
+    /// this, Mode "1" first copies each pair of chunks to the thread heap,
+    /// ensuring that samples within these pairs are close together, thus
+    /// benefiting from better memory cache locality.
     #[arg(long, default_value_t = 0, help_heading = "parallelization options")]
     pub par_mode: u8,
 
