@@ -135,7 +135,7 @@ fn main() -> Result<()> {
         })?;
     } else {
         eprintln!(
-            "--par-mode {} is not supported. Please check `hmmibd2 --help` for help info.",
+            "--par-mode {} is not supported. Please check `hmmibd-rs --help` for help info.",
             cli.par_mode
         );
         std::process::exit(-1);
