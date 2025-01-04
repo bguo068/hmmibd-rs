@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 
 int main(int argc, char **argv)
 {
@@ -81,6 +82,12 @@ int main(int argc, char **argv)
   int prev_chrom, ngood, nflag, nskipped = 0, nsite, jstart;
   int count_ibd_vit, count_dbd_vit;
 
+  // used for tracking progress
+  int pflag; // whether progress is tracked and printed
+  int start_time; // start time
+  int current_time; // current time
+  start_time = time(NULL);
+
   pinit[0] = 0.5; // flat prior
   pinit[1] = 0.5;
 
@@ -93,11 +100,14 @@ int main(int argc, char **argv)
          "[-b <file with samples to skip>] [-n <max N generation>]");
   strcat(usage_string,
          "  [-g <file with sample pairs to use>] [-r <recomb_rate>]\n");
+  strcat(usage_string,
+         "  [-p]\n");
 
   opterr = 0;
   mflag = iflag1 = iflag2 = oflag = freq_flag1 = freq_flag2 = bflag = gflag =
       nflag = 0;
-  while ((c = getopt(argc, argv, ":f:F:i:I:o:m:b:g:n:r:")) != -1)
+  pflag = 0;
+  while ((c = getopt(argc, argv, ":f:F:i:I:o:m:b:g:n:r:p")) != -1)
   {
     switch (c)
     {
@@ -144,6 +154,9 @@ int main(int argc, char **argv)
       break;
     case 'r':
       rec_rate = strtod(optarg, NULL);
+      break;
+    case 'p':
+      pflag = 1;
       break;
     case ':':
       fprintf(stderr, "option %c requires an argument\n", optopt);
@@ -1457,8 +1470,18 @@ int main(int argc, char **argv)
             (double)count_ibd_vit / (count_ibd_vit + count_dbd_vit));
       } // end if use pair
       ipair++;
-      //      if (ipair%1000 == 0) {fprintf(stdout, "Starting pair %d\n",
-      //      ipair);}
+
+      // print time if -p is toggled
+      int  step = npair_report / 1000;
+      step = 2;
+      if (step <  2){
+        step = 2;
+      }
+      if ((pflag == 1) && (ipair % step == 0)) {
+        current_time = time(NULL);
+        fprintf(stderr, "PROGRESS\t%0.3f\t%d\t%d\n",
+                ipair * 1.0 / npair_report, ipair, current_time - start_time);
+      }
     }
   }
   return (0);
