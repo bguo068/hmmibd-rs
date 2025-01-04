@@ -247,6 +247,10 @@ pub struct Arguments {
     /// number of samples per chunk for parallelization mode 1
     #[arg(long, default_value_t = 120, help_heading = "parallelization options")]
     pub par_chunk_size: u32,
+
+    /// Optional: if set, print progress perioidically (used for benchmarking)
+    #[arg(long, help_heading = "parallelization options")]
+    pub print_progress: bool,
 }
 
 #[derive(Default, Debug, ValueEnum, Clone, Copy)]
@@ -297,6 +301,7 @@ impl Arguments {
             par_mode: 0,
             bcf_to_bin_file_by_chromosome: false,
             bcf_to_bin_file: false,
+            print_progress: false,
         }
     }
     pub fn new_for_test_bcf() -> Self {
@@ -338,6 +343,7 @@ impl Arguments {
             bcf_read_mode: Default::default(),
             bcf_to_bin_file_by_chromosome: false,
             bcf_to_bin_file: false,
+            print_progress: false,
         }
     }
 }

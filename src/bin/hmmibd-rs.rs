@@ -4,6 +4,7 @@ use hmmibd_rs::args::Arguments;
 use hmmibd_rs::data::{self, InputData, OutputBuffer, OutputFiles};
 use hmmibd_rs::hmm::HmmRunner;
 use rayon::prelude::*;
+use std::sync::{Arc, RwLock};
 
 fn main() -> Result<()> {
     let cli = Arguments::parse();
@@ -28,6 +29,7 @@ fn main() -> Result<()> {
         }
     }
 
+    let start = std::time::Instant::now();
     let input = InputData::from_args(&cli)?;
     let outfiles = OutputFiles::new_from_args(&cli, buffer_size_segments, buffer_size_frac)?;
 
@@ -42,6 +44,8 @@ fn main() -> Result<()> {
 
     if cli.par_mode == 0 {
         let runner = HmmRunner::new(&input);
+        let progress = Arc::new(RwLock::new((0usize, 0usize, 0usize)));
+        let total_nchunks = input.pairs.len().div_ceil(par_chunk_size as usize);
 
         pool.install(|| -> Result<()> {
             input
@@ -65,15 +69,38 @@ fn main() -> Result<()> {
                         out.flush_segs()?;
                         // println!("finish pair: {:4}, {:4}", pair.0, pair.1);
                     }
+
+                    if input.args.print_progress {
+                        // read
+                        let (last_nchunks, nchunks, npairs) = {
+                            &mut *progress
+                                .write()
+                                .map_err(|e| anyhow!("cannot read rwlock with write : {e:#?}"))?
+                        };
+
+                        if *nchunks - *last_nchunks > total_nchunks / 1000 {
+                            eprintln!(
+                                "PROGRESS\t{:.3}\t{}\t{}",
+                                *nchunks as f64 / total_nchunks as f64,
+                                npairs,
+                                start.elapsed().as_secs(),
+                            );
+                            // update
+                            *last_nchunks = *nchunks;
+                        }
+                        // update
+                        *nchunks += 1;
+                        *npairs += chunk.len();
+                    }
+
                     Ok(())
                 })?;
             Ok(())
         })?
     } else if cli.par_mode == 1 {
-        use std::sync::{Arc, RwLock};
-        let chunks_done = Arc::new(RwLock::new((0usize, 0usize)));
+        let progress = Arc::new(RwLock::new((0usize, 0usize, 0usize)));
         let chunk_pairs = input.get_chunk_pairs();
-        let chunks_all = chunk_pairs.len();
+        let total_nchunks = chunk_pairs.len();
 
         pool.install(|| -> anyhow::Result<()> {
             chunk_pairs
@@ -107,28 +134,29 @@ fn main() -> Result<()> {
 
                     outbuffer.flush_frac()?;
                     outbuffer.flush_segs()?;
-                    {
-                        let (last, n) = {
-                            *chunks_done
-                                .read()
-                                .map_err(|e| anyhow!("cannot read rwlock with error : {e:#?}"))?
+
+                    if input.args.print_progress {
+                        // read
+                        let (last_nchunks, nchunks, npairs) = {
+                            &mut *progress
+                                .write()
+                                .map_err(|e| anyhow!("cannot write rwlock with error : {e:#?}"))?
                         };
 
-                        if n - last > chunks_all / 100 {
-                            println!(
-                                "finished {n} / {chunks_all}: {:.3}%       ",
-                                (n * 100) as f64 / chunks_all as f64
+                        if *nchunks - *last_nchunks > total_nchunks / 1000 {
+                            eprintln!(
+                                "PROGRESS\t{:.3}\t{}\t{}",
+                                *nchunks as f64 / total_nchunks as f64,
+                                npairs,
+                                start.elapsed().as_secs(),
                             );
-                            let chunks_done = &mut *chunks_done.write().unwrap();
-                            chunks_done.0 = chunks_done.1;
+                            // update
+                            *last_nchunks = *nchunks;
                         }
+                        // update
+                        *nchunks += 1;
+                        *npairs += pairs.len();
                     }
-                    {
-                        chunks_done
-                            .write()
-                            .map_err(|e| anyhow!("cannot write due to RwLock with error: {e:#?} "))?
-                            .1 += 1;
-                    };
                     Ok(())
                 })?;
             Ok(())
