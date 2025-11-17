@@ -53,6 +53,26 @@ This executable can be moved to any path specified in the `$PATH` environment
 variable for convenience. Otherwise, you can specify the path to the executable
 and run it.
 
+## Docker image
+```sh
+# pull the image
+docker pull bguo068/hmmibd-rs:latest
+
+# Run hmmibd-rs
+docker run --rm bguo068/hmmibd-rs hmmibd-rs --version
+
+# Run original hmmIBD
+docker run --rm bguo068/hmmibd-rs hmmIBD
+
+# Run with your data (mount a volume)
+docker run --rm -v $(pwd)/data:/data bguo068/hmmibd-rs hmmibd-rs -i [input.txt] -o [output]
+
+# Use the docker image via apptainer
+apptainer build hmmibd-rs.sif  docker://bguo068/hmmibd-rs:latest
+apptainer exec hmmibd-rs.sif hmmibd-rs -i [input.txt] -o [output]
+```
+
+
 ## Usage
 
 ### Command line options
