@@ -8,5 +8,7 @@ pub mod gmap;
 pub mod hmm;
 pub mod matrix;
 pub mod model;
+pub mod params;
 pub mod samples;
+pub mod simulate;
 pub mod sites;

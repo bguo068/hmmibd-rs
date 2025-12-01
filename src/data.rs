@@ -13,6 +13,7 @@ use crate::{
     genome::Genome,
     matrix::*,
     samples::{self, Samples},
+    simulate,
     sites::{self, SiteInfoRaw, Sites},
 };
 
@@ -58,6 +59,26 @@ pub enum Error {
 
     #[error("cli argument error: output prefix cannot be inferred")]
     OutputPrefixCantBeInferred,
+
+    #[error("{0:?}")]
+    Params(#[from] crate::params::Error),
+
+    #[error("Param file refer to 2nd population but --freq-file2 is not provided")]
+    MissingFreqFile2,
+
+    #[error("Param file refer to 1st population but --freq-file1 is not provided")]
+    MissingFreqFile1,
+
+    #[error(
+        "When using freq file for builtin HMM genotype simulation, only one chromosome is allowed."
+    )]
+    TooManyChromosomesForSimulation,
+
+    #[error("invalide index pair used to access genotype matrix.")]
+    InvalidePairIndices,
+
+    #[error("{0:?}")]
+    SimulationError(#[from] crate::simulate::SimulationError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -222,7 +243,201 @@ impl InputData {
         })
     }
 
+    pub fn from_simulation(args: &Arguments) -> Result<Self, Error> {
+        eprint!("running simulation");
+        let (params_vec, use_2nd_freq_file) = crate::params::read_params_file(&args.data_file1)?;
+        let npairs = params_vec.len();
+        let nsamples = npairs * 2;
+
+        if use_2nd_freq_file && args.freq_file2.is_none() {
+            return Err(Error::MissingFreqFile2);
+        }
+
+        let freq_file1 = args.freq_file1.as_ref().ok_or(Error::MissingFreqFile2)?;
+        let sitesinfo = Self::read_site_info_from_freq_file(freq_file1, args.min_snp_sep)?;
+        // create the genome object and site object
+        let (sites, genome) = sitesinfo.into_sites_and_genome(&args.rec_args)?;
+        let nsites = sites.get_num_sites();
+        if sites.get_num_chroms() > 1 {
+            return Err(Error::TooManyChromosomesForSimulation);
+        }
+        let freq1 = Self::read_freq_file(freq_file1, args, &genome, &sites)?;
+
+        let freq2 = match args.freq_file2.as_ref() {
+            Some(freq_file2) => Some(Self::read_freq_file(freq_file2, args, &genome, &sites)?),
+            None => None,
+        };
+
+        let cm_diff = sites
+            .get_pos_cm_slice()
+            .iter()
+            .zip(sites.get_pos_cm_slice().iter().skip(1))
+            .map(|(cm1, cm2)| *cm2 - *cm1)
+            .collect_vec();
+
+        // intialize/allocate memory for genotype matrix states_vec
+        let mut geno_mat = Matrix::<u8>::from_shape(nsamples, nsites, u8::MAX);
+        let mut states_vec = Vec::with_capacity(nsites);
+
+        let nsam_pop1 = params_vec.iter().filter(|x| x.pop_id1 == 0).count()
+            + params_vec.iter().filter(|x| x.pop_id2 == 0).count();
+
+        // variable to used in the for loop
+        let mut next_pop1_sample_id = 0;
+        let mut next_pop2_sample_id = nsam_pop1;
+        let mut sample_origin_vec_pop1 = Vec::new();
+        let mut sample_origin_vec_pop2 = Vec::new();
+        let mut pairs = Vec::new();
+
+        // parepare file to write true IBD
+        let mut true_ibd_writer = {
+            let prefix = match args.output.as_ref() {
+                Some(output) => output,
+                None => &args.data_file1,
+            };
+            let true_ibd_fn = format!("{prefix}.true_ibd.txt");
+            if let Some(parent) = Path::new(&true_ibd_fn).parent() {
+                // ignore error such due to existing parent components
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::File::create(&true_ibd_fn)
+                .map(std::io::BufWriter::new)
+                .map_err(|e| Error::Io {
+                    source: e,
+                    file: Some(true_ibd_fn.clone()),
+                })?
+        };
+
+        for (ipair, param) in params_vec.into_iter().enumerate() {
+            // as genotype matrix is designed to store all genotype of
+            // pop1 samples contiguously in the begining, we need to keep
+            // track two pointers/indices for both populations, i.e. the
+            // next_pop1/2_sample_id, as well as the origin of samples idx so we
+            // can better use them to compare true IBD states and inferred ones.
+            if ipair % (npairs / 10) == 0 {
+                eprintln!("\tsimulating: {ipair}/{npairs} pairs");
+            }
+            let sample_i_idx = if param.pop_id1 == 0 {
+                // belong to pop1
+                let tmp = next_pop1_sample_id;
+                next_pop1_sample_id += 1;
+                sample_origin_vec_pop1.push(2 * ipair);
+                tmp
+            } else {
+                // belong to pop2
+                let tmp = next_pop2_sample_id;
+                next_pop2_sample_id += 1;
+                sample_origin_vec_pop2.push(2 * ipair);
+                tmp
+            };
+
+            let sample_j_idx = if param.pop_id2 == 0 {
+                // belong to pop1
+                let tmp = next_pop1_sample_id;
+                next_pop1_sample_id += 1;
+                sample_origin_vec_pop1.push(2 * ipair + 1);
+                tmp
+            } else {
+                // belong to pop2
+                let tmp = next_pop2_sample_id;
+                next_pop2_sample_id += 1;
+                sample_origin_vec_pop2.push(2 * ipair + 1);
+                tmp
+            };
+            pairs.push((sample_i_idx as u32, sample_j_idx as u32));
+            states_vec.clear();
+            states_vec.resize(nsites, false);
+
+            let k = param.k;
+            let r = param.r;
+            let (gt1, gt2) = geno_mat
+                .get_row_pair_slice_mut(sample_i_idx, sample_j_idx)
+                .ok_or(Error::InvalidePairIndices)?;
+
+            simulate::simulate_genotype_for_pair(
+                &freq1,
+                freq2.as_ref().unwrap_or(&freq1),
+                &cm_diff,
+                k,
+                r,
+                args.eps,
+                states_vec.as_mut_slice(),
+                gt1,
+                gt2,
+            )?;
+
+            let mut already_in_ibd_state = false;
+            let mut start_ibd_site_idx = 0;
+            for (i, &state) in states_vec.iter().enumerate() {
+                match (already_in_ibd_state, state) {
+                    (false, true) => {
+                        start_ibd_site_idx = i;
+                        already_in_ibd_state = true
+                    }
+                    (true, false) => {
+                        //end of of IBD
+                        // write IBD
+                        let end_ibd_site_idx = i - 1;
+                        // change states
+                        already_in_ibd_state = false;
+                        use std::io::Write;
+
+                        writeln!(
+                            true_ibd_writer,
+                            "s{}\ts{}\t{}\t{}",
+                            ipair * 2,
+                            ipair * 2 + 1,
+                            genome
+                                .to_chr_pos(sites.get_pos_slice()[start_ibd_site_idx])
+                                .2,
+                            genome.to_chr_pos(sites.get_pos_slice()[end_ibd_site_idx]).2,
+                        )
+                        .map_err(|e| Error::Io {
+                            source: e,
+                            file: None,
+                        })?;
+                    }
+                    (true, true) => {}
+                    (false, false) => {}
+                }
+            }
+        }
+
+        assert_eq!(sample_origin_vec_pop1.len(), nsam_pop1);
+        assert_eq!(
+            sample_origin_vec_pop1.len() + sample_origin_vec_pop2.len(),
+            nsamples
+        );
+        let samples =
+            Samples::from_origin_index_vec(&sample_origin_vec_pop1, &sample_origin_vec_pop2);
+        let nall = Self::get_nall(&freq1, freq2.as_ref())?;
+        let nsam_pop2 = npairs * 2 - nsam_pop1;
+        let nsam_pop2 = if nsam_pop2 == 0 {
+            None
+        } else {
+            Some(nsam_pop2)
+        };
+        let majall = Self::get_major_all(&freq1, freq2.as_ref(), nsam_pop1, nsam_pop2)?;
+
+        Ok(Self {
+            args: args.clone(),
+            geno: geno_mat,
+            freq1,
+            freq2,
+            sites,
+            genome,
+            pairs,
+            nall,
+            samples,
+            majall,
+        })
+    }
+
     pub fn from_args(args: &Arguments) -> Result<Self, Error> {
+        if args.from_params {
+            return Self::from_simulation(args);
+        }
+
         let bcf_gt = if args.from_bin {
             Some(BcfGenotype::load_from_file(&args.data_file1)?)
         } else if args.from_bcf {
@@ -452,6 +667,64 @@ impl InputData {
         // check seleted_samples are correct
         dgt.into_genotype_siteinfo(valid_samples, min_snp_sep)
             .map_err(|e| e.into())
+    }
+
+    fn read_site_info_from_freq_file(
+        freq_file: impl AsRef<Path>,
+        min_snp_sep: u32,
+    ) -> Result<SiteInfoRaw, Error> {
+        let mut siteinfo = SiteInfoRaw::new();
+
+        let mut line = String::with_capacity(100);
+        let mut f = std::fs::File::open(freq_file.as_ref())
+            .map(BufReader::new)
+            .map_err(|source| Error::Io {
+                source,
+                file: Some(freq_file.as_ref().to_string_lossy().to_string()),
+            })?;
+
+        let mut last_chrname = String::new();
+        let mut last_pos = 0;
+
+        while f
+            .read_line(&mut line)
+            .map_err(|source| Error::Io { source, file: None })?
+            != 0
+        {
+            let mut fields = line.trim().split("\t");
+            let chrname = fields
+                .next()
+                .ok_or(ParseLineError::ReadColumnError("chrname"))?;
+            let pos: u32 = fields
+                .next()
+                .ok_or(ParseLineError::ReadColumnError("pos"))?
+                .parse()
+                .map_err(|_| ParseLineError::ParseColumnError("pos"))?;
+
+            // println!("pos: {pos}, last_pos: {last_pos}");
+            if chrname == last_chrname {
+                if last_pos + min_snp_sep > pos {
+                    line.clear();
+                    continue;
+                } else {
+                    last_chrname.clear();
+                    last_chrname.push_str(chrname);
+                    last_pos = pos;
+                }
+            } else {
+                last_chrname.clear();
+                last_chrname.push_str(chrname);
+                last_pos = pos;
+                siteinfo.add_chr_name(chrname);
+            }
+
+            siteinfo.add_chr_idx(chrname);
+            siteinfo.add_chr_pos(pos);
+
+            line.clear();
+        }
+
+        Ok(siteinfo)
     }
 
     fn read_data_hmmibd_format(
@@ -747,6 +1020,7 @@ impl InputData {
                 if m.contains_key(s1) && m.contains_key(s2) {
                     v.push((m[s1], m[s2]));
                 }
+                eprintln!("WARN: either {s1} or {s2} specified by -g is an invalid sample. Check files specified by -i/-I or -g")
             }
         } else {
             // two populatoin

@@ -78,6 +78,21 @@ impl AsOption for f64 {
     }
 }
 
+impl AsOption for bool {
+    fn as_option(&self) -> Option<Self> {
+        Some(*self)
+    }
+    fn is_none(&self) -> bool {
+        false
+    }
+    fn is_some(&self) -> bool {
+        true
+    }
+    fn none() -> Self {
+        false
+    }
+}
+
 #[derive(Clone)]
 pub struct Matrix<T>
 where
@@ -130,6 +145,34 @@ where
     }
     pub fn get_ncols(&self) -> usize {
         self.ncols
+    }
+
+    pub fn get_row_pair_slice_mut(
+        &mut self,
+        rowi: usize,
+        rowj: usize,
+    ) -> Option<(&mut [T], &mut [T])> {
+        if (rowi == rowj) || (rowi >= self.nrows) || (rowj >= self.nrows) {
+            return None;
+        }
+
+        if rowi < rowj {
+            let (first, second) = self.data.split_at_mut(rowj * self.ncols);
+            Some((
+                &mut first[rowi * self.ncols..(rowi + 1) * self.ncols],
+                &mut second[0..self.ncols],
+            ))
+        } else {
+            let (first, second) = self.data.split_at_mut(rowi * self.ncols);
+            Some((
+                &mut second[0..self.ncols],
+                &mut first[rowj * self.ncols..(rowj + 1) * self.ncols],
+            ))
+        }
+    }
+
+    pub fn get_row_raw_slice_mut(&mut self, row: usize) -> &mut [T] {
+        &mut self.data[(row * self.ncols)..((row + 1) * self.ncols)]
     }
 
     pub fn get_row_raw_slice(&self, row: usize) -> &[T] {

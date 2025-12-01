@@ -7,7 +7,7 @@ use rayon::prelude::*;
 use std::sync::{Arc, RwLock};
 
 fn main() -> Result<()> {
-    let cli = Arguments::parse();
+    let mut cli = Arguments::parse();
     let num_threads = cli.num_threads;
     let par_chunk_size = cli.par_chunk_size;
     let suppress_frac = cli.suppress_frac;
@@ -28,6 +28,26 @@ fn main() -> Result<()> {
             ).into());
         }
     }
+    if cli.from_params &&
+        ((cli.par_mode != 0)
+            || cli.from_bcf
+            || cli.from_bin
+            || cli.good_file.is_some()
+            || cli.bad_file.is_some()
+            || cli.data_file2.is_some())
+        {
+            eprintln!(concat!(
+                "WARN: when --from-params is used, --from-bcf, --from-bin,",
+                " --good-file, --bad-file and --data-file2 options are ignored,",
+                "--par-mode is forced to be 0"
+            ));
+            cli.par_mode = 0;
+            cli.from_bcf = false;
+            cli.from_bin = false;
+            cli.good_file = None;
+            cli.bad_file = None;
+            cli.data_file2 = None
+        }
 
     let start = std::time::Instant::now();
     let input = InputData::from_args(&cli)?;

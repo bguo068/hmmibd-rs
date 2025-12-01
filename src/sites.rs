@@ -73,6 +73,13 @@ impl Sites {
         let r = &self.chrom_ranges[chrid];
         (r.start as usize, r.end as usize)
     }
+    pub fn get_num_sites(&self) -> usize {
+        self.gw_pos.len()
+    }
+
+    pub fn get_num_chroms(&self) -> usize {
+        self.chrom_ranges.len()
+    }
 }
 
 #[derive(PartialEq, Eq, Debug, Default)]

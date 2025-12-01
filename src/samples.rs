@@ -14,7 +14,7 @@ pub enum Error {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Samples {
     v: Vec<String>,
     m: std::collections::HashMap<String, u32>,
@@ -36,6 +36,27 @@ impl Samples {
         }
         for (i, s) in pop2_slice.iter().enumerate() {
             m.insert(s.to_owned(), i as u32 + pop1_nsam);
+        }
+
+        Self {
+            v,
+            m,
+            pop1_nsam,
+            pop2_nsam,
+        }
+    }
+
+    pub fn from_origin_index_vec(pop1_slice: &[usize], pop2_slice: &[usize]) -> Self {
+        let pop1_nsam = pop1_slice.len() as u32;
+        let pop2_nsam = pop2_slice.len() as u32;
+        let total = pop1_nsam + pop2_nsam;
+
+        let mut v = Vec::<String>::with_capacity(total as usize);
+        let mut m = std::collections::HashMap::<String, u32>::with_capacity(total as usize);
+        for (i, sample_id) in pop1_slice.iter().chain(pop2_slice.iter()).enumerate() {
+            let sample_name = format!("s{sample_id}");
+            v.push(sample_name.clone());
+            m.insert(sample_name, i as u32);
         }
 
         Self {

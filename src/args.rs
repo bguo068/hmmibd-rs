@@ -20,6 +20,13 @@ pub struct Arguments {
     /// (3) When `--from-bin` is specified, a binary genotype input file
     /// is expected. See options `--bcf-to-bin-file-by-chromosome` or
     /// `bcf-to-bin-file` for generating binary genotype files.
+    /// (4) When `--from-params` is specfiied, the input is expected in
+    /// a tsv format with four columns: (i) ibd probability 'r'; (ii) another
+    /// for the k parameter; (iii-iv) the population indices, either 0 or 1,
+    /// indicating which allele frequency table to be used for the two
+    /// genotype to bo simulated, 0 corresponding the -f table, and 1 for
+    /// the -F table. Values on each row will be used to simulate
+    /// genotype of a pair of samples. The tsv should not have header line(s).
     #[arg(short = 'i', long, required = true, help_heading = "input data")]
     pub data_file1: String,
 
@@ -38,7 +45,12 @@ pub struct Arguments {
     ///  ... The genotype and frequency files must contain exactly the same
     ///  variants, in the same order. If no file is supplied, allele frequencies
     ///  are calculated from the input data file.
-    #[arg(short = 'f', long, help_heading = "input data")]
+    #[arg(
+        short = 'f',
+        long,
+        group = "grp_freq_file1",
+        help_heading = "input data"
+    )]
     pub freq_file1: Option<String>,
 
     ///  Optional: File of allele frequencies for the second population; same format as
@@ -63,6 +75,15 @@ pub struct Arguments {
     #[arg(short = 'g', long, help_heading = "input data")]
     pub good_file: Option<String>,
 
+    /// Optional: flag indicating whether the input file is of params format
+    #[arg(
+        long,
+        default_value_t = false,
+        group = "input_format",
+        requires = "grp_freq_file1",
+        help_heading = "input data options"
+    )]
+    pub from_params: bool,
     // ---- bcf file
     /// Optional: flag indicating whether the input file is of BCF format
     #[arg(
@@ -268,6 +289,7 @@ impl Arguments {
             data_file2: Some(String::from("c/samp_data/pf3k_Ghana_13.txt")),
             from_bcf: false,
             from_bin: false,
+            from_params: false,
             bcf_filter_config: None,
             freq_file1: Some(String::from("c/samp_data/freqs_pf3k_Cambodia_13.txt")),
             freq_file2: Some(String::from("c/samp_data/freqs_pf3k_Ghana_13.txt")),
@@ -310,6 +332,7 @@ impl Arguments {
             data_file2: None,
             from_bcf: true,
             from_bin: false,
+            from_params: false,
             bcf_filter_config: Some(String::from("testdata/pf7_data/dom_gt_config.toml")),
             freq_file1: None,
             freq_file2: None,
