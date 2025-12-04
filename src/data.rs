@@ -272,7 +272,9 @@ impl InputData {
             .get_pos_cm_slice()
             .iter()
             .zip(sites.get_pos_cm_slice().iter().skip(1))
-            .map(|(cm1, cm2)| *cm2 - *cm1)
+            .map(
+                |(cm1, cm2)| (*cm2 - *cm1) / 100.0, /* cM to morgan conversion */
+            )
             .collect_vec();
 
         // intialize/allocate memory for genotype matrix states_vec
