@@ -382,20 +382,25 @@ impl InputData {
                         already_in_ibd_state = false;
                         use std::io::Write;
 
-                        writeln!(
-                            true_ibd_writer,
-                            "s{}\ts{}\t{}\t{}",
-                            ipair * 2,
-                            ipair * 2 + 1,
-                            genome
+                        if end_ibd_site_idx > start_ibd_site_idx {
+                            // check this so sigle ibd snps won't print as zero-length segment
+                            let start_bp = genome
                                 .to_chr_pos(sites.get_pos_slice()[start_ibd_site_idx])
-                                .2,
-                            genome.to_chr_pos(sites.get_pos_slice()[end_ibd_site_idx]).2,
-                        )
-                        .map_err(|e| Error::Io {
-                            source: e,
-                            file: None,
-                        })?;
+                                .2;
+                            let end_bp =
+                                genome.to_chr_pos(sites.get_pos_slice()[end_ibd_site_idx]).2;
+                            writeln!(
+                                true_ibd_writer,
+                                "s{}\ts{}\t{start_bp}\t{end_bp}",
+                                ipair * 2,
+                                ipair * 2 + 1,
+                            )
+                            .map_err(|e| Error::Io {
+                                source: e,
+                                file: None,
+                            })?;
+                            assert!(start_bp < end_bp);
+                        }
                     }
                     (true, true) => {}
                     (false, false) => {}
