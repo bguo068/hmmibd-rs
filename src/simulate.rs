@@ -106,12 +106,15 @@ pub fn simulate_genotype_for_pair(
                 .0
         };
 
+        use rand::seq::IteratorRandom;
         // simulate genotping error
         gt1[m] = if rng.random::<f64>() < (gamma - 1) as f64 * epsilon {
-            weights1[true_gt1].1 = 0.0;
+            // uniform draw from alleles other than true gt1
             weights1
-                .choose_weighted(&mut rng, |x| x.1)
-                .map_err(|_| SimulationError::RngWeightError)?
+                .iter()
+                .filter(|(i, _)| *i != true_gt1)
+                .choose(&mut rng)
+                .ok_or(SimulationError::RngWeightError)?
                 .0 as u8
         } else {
             // not error
@@ -119,10 +122,12 @@ pub fn simulate_genotype_for_pair(
         };
 
         gt2[m] = if rng.random::<f64>() < (gamma - 1) as f64 * epsilon {
-            weights2[true_gt2].1 = 0.0;
+            // uniform draw from alleles other than true gt2
             weights2
-                .choose_weighted(&mut rng, |x| x.1)
-                .map_err(|_| SimulationError::RngWeightError)?
+                .iter()
+                .filter(|(i, _)| *i != true_gt2)
+                .choose(&mut rng)
+                .ok_or(SimulationError::RngWeightError)?
                 .0 as u8
         } else {
             // not error
