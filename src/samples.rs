@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     io::{BufRead, BufReader, Read},
+    path::PathBuf,
 };
 
 use crate::{args::Arguments, bcf::BcfGenotype};
@@ -12,6 +13,12 @@ pub enum Error {
         source: std::io::Error,
         path: std::path::PathBuf,
     },
+    #[error("too many fields")]
+    TooManyFields,
+    #[error("too few fields")]
+    TooFewFields,
+    #[error("invalid population id")]
+    InvalidPopulationId,
 }
 
 #[derive(Clone, Default)]
@@ -44,6 +51,52 @@ impl Samples {
             pop1_nsam,
             pop2_nsam,
         }
+    }
+
+    /// read population file and return Samples value if not error
+    ///
+    /// Expect two column tab-separated file, one for sample name, other for population id (0 or 1)
+    pub fn from_pop_file(pop_file: &str) -> Result<Self, Error> {
+        let content = std::fs::read_to_string(pop_file).map_err(|e| Error::Io {
+            source: e,
+            path: PathBuf::from(pop_file),
+        })?;
+        let mut pop0_vec = vec![];
+        let mut pop1_vec = vec![];
+        for line in content.split('\n') {
+            if line.is_empty() {
+                continue;
+            }
+            let mut fields = line.split('\t');
+            let name = fields.next().ok_or(Error::TooFewFields)?;
+            let pop = fields
+                .next()
+                .ok_or(Error::TooFewFields)?
+                .parse()
+                .map_err(|_| Error::InvalidPopulationId)?;
+            match pop {
+                0 => pop0_vec.push(name),
+                1 => pop1_vec.push(name),
+                _ => return Err(Error::InvalidPopulationId),
+            };
+        }
+        let v: Vec<String> = pop0_vec
+            .iter()
+            .chain(pop1_vec.iter())
+            .map(|e| e.to_string())
+            .collect();
+        let m: HashMap<String, u32> = v
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (s.to_owned(), i as u32))
+            .collect();
+
+        Ok(Samples {
+            v,
+            m,
+            pop1_nsam: pop0_vec.len() as u32,
+            pop2_nsam: pop1_vec.len() as u32,
+        })
     }
 
     pub fn from_origin_index_vec(pop1_slice: &[usize], pop2_slice: &[usize]) -> Self {

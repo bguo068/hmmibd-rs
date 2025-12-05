@@ -69,6 +69,9 @@ pub enum Error {
     #[error("Param file refer to 1st population but --freq-file1 is not provided")]
     MissingFreqFile1,
 
+    #[error("pop_file is expected via --data-file2 but it is not provided")]
+    MissingDataFile2AsPopFile,
+
     #[error(
         "When using freq file for builtin HMM genotype simulation, only one chromosome is allowed."
     )]
@@ -243,9 +246,15 @@ impl InputData {
         })
     }
 
-    pub fn from_simulation(args: &Arguments) -> Result<Self, Error> {
+    pub fn from_simulation_based_on_params(args: &Arguments) -> Result<Self, Error> {
         eprint!("running simulation");
-        let (params_vec, use_2nd_freq_file) = crate::params::read_params_file(&args.data_file1)?;
+        let pop_file = args
+            .data_file2
+            .as_ref()
+            .ok_or(crate::data::Error::MissingDataFile2AsPopFile)?;
+        let samples = Samples::from_pop_file(pop_file)?;
+        let params_vec = crate::params::read_params_file(&args.data_file1, &samples)?;
+        let use_2nd_freq_file = samples.pop2_nsam() > 0;
         let npairs = params_vec.len();
         let nsamples = npairs * 2;
 
@@ -281,14 +290,6 @@ impl InputData {
         let mut geno_mat = Matrix::<u8>::from_shape(nsamples, nsites, u8::MAX);
         let mut states_vec = Vec::with_capacity(nsites);
 
-        let nsam_pop1 = params_vec.iter().filter(|x| x.pop_id1 == 0).count()
-            + params_vec.iter().filter(|x| x.pop_id2 == 0).count();
-
-        // variable to used in the for loop
-        let mut next_pop1_sample_id = 0;
-        let mut next_pop2_sample_id = nsam_pop1;
-        let mut sample_origin_vec_pop1 = Vec::new();
-        let mut sample_origin_vec_pop2 = Vec::new();
         let mut pairs = Vec::new();
 
         // parepare file to write true IBD
@@ -311,52 +312,20 @@ impl InputData {
         };
 
         for (ipair, param) in params_vec.into_iter().enumerate() {
-            // as genotype matrix is designed to store all genotype of
-            // pop1 samples contiguously in the begining, we need to keep
-            // track two pointers/indices for both populations, i.e. the
-            // next_pop1/2_sample_id, as well as the origin of samples idx so we
-            // can better use them to compare true IBD states and inferred ones.
             if ipair % (npairs / 10) == 0 {
                 eprintln!("\tsimulating: {ipair}/{npairs} pairs");
             }
-            let sample_i_idx = if param.pop_id1 == 0 {
-                // belong to pop1
-                let tmp = next_pop1_sample_id;
-                next_pop1_sample_id += 1;
-                sample_origin_vec_pop1.push(2 * ipair);
-                tmp
-            } else {
-                // belong to pop2
-                let tmp = next_pop2_sample_id;
-                next_pop2_sample_id += 1;
-                sample_origin_vec_pop2.push(2 * ipair);
-                tmp
-            };
-
-            let sample_j_idx = if param.pop_id2 == 0 {
-                // belong to pop1
-                let tmp = next_pop1_sample_id;
-                next_pop1_sample_id += 1;
-                sample_origin_vec_pop1.push(2 * ipair + 1);
-                tmp
-            } else {
-                // belong to pop2
-                let tmp = next_pop2_sample_id;
-                next_pop2_sample_id += 1;
-                sample_origin_vec_pop2.push(2 * ipair + 1);
-                tmp
-            };
-            pairs.push((sample_i_idx as u32, sample_j_idx as u32));
+            pairs.push((param.id1, param.id2));
             states_vec.clear();
             states_vec.resize(nsites, false);
 
             let k = param.k;
             let r = param.r;
             let (gt1, gt2) = geno_mat
-                .get_row_pair_slice_mut(sample_i_idx, sample_j_idx)
+                .get_row_pair_slice_mut(param.id1 as usize, param.id2 as usize)
                 .ok_or(Error::InvalidePairIndices)?;
 
-            simulate::simulate_genotype_for_pair(
+            simulate::simulate_genotype_for_pair_from_k_and_r(
                 &freq1,
                 freq2.as_ref().unwrap_or(&freq1),
                 &cm_diff,
@@ -410,21 +379,13 @@ impl InputData {
             }
         }
 
-        assert_eq!(sample_origin_vec_pop1.len(), nsam_pop1);
-        assert_eq!(
-            sample_origin_vec_pop1.len() + sample_origin_vec_pop2.len(),
-            nsamples
-        );
-        let samples =
-            Samples::from_origin_index_vec(&sample_origin_vec_pop1, &sample_origin_vec_pop2);
+        let majall = Self::get_major_all(
+            &freq1,
+            freq2.as_ref(),
+            samples.pop1_nsam() as usize,
+            Some(samples.pop2_nsam() as usize),
+        )?;
         let nall = Self::get_nall(&freq1, freq2.as_ref())?;
-        let nsam_pop2 = npairs * 2 - nsam_pop1;
-        let nsam_pop2 = if nsam_pop2 == 0 {
-            None
-        } else {
-            Some(nsam_pop2)
-        };
-        let majall = Self::get_major_all(&freq1, freq2.as_ref(), nsam_pop1, nsam_pop2)?;
 
         Ok(Self {
             args: args.clone(),
@@ -442,7 +403,7 @@ impl InputData {
 
     pub fn from_args(args: &Arguments) -> Result<Self, Error> {
         if args.from_params {
-            return Self::from_simulation(args);
+            return Self::from_simulation_based_on_params(args);
         }
 
         let bcf_gt = if args.from_bin {
@@ -976,6 +937,7 @@ impl InputData {
         let freq = freq.finish();
         Ok(freq)
     }
+
     pub fn infer_freq_from_data(geno: &Matrix<u8>, sites: &Sites, args: &Arguments) -> Matrix<f64> {
         // assert gentoeyps is still site oriented
         assert_eq!(geno.get_nrows(), sites.get_pos_slice().len());

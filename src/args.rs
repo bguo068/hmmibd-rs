@@ -20,17 +20,20 @@ pub struct Arguments {
     /// (3) When `--from-bin` is specified, a binary genotype input file
     /// is expected. See options `--bcf-to-bin-file-by-chromosome` or
     /// `bcf-to-bin-file` for generating binary genotype files.
-    /// (4) When `--from-params` is specfiied, the input is expected in
-    /// a tsv format with four columns: (i) ibd probability 'r'; (ii) another
-    /// for the k parameter; (iii-iv) the population indices, either 0 or 1,
-    /// indicating which allele frequency table to be used for the two
-    /// genotype to bo simulated, 0 corresponding the -f table, and 1 for
-    /// the -F table. Values on each row will be used to simulate
+    /// (4) When `--from-params` is specfiied, the input is expected in a tsv
+    /// format with four columns: (i-ii) sample ids each with a row in the
+    /// pop_file specified as --data-file2 (iii) ibd probability 'r'; (iv)
+    /// another for the k parameter. Values on each row will be used to simulate
     /// genotype of a pair of samples. The tsv should not have header line(s).
     #[arg(short = 'i', long, required = true, help_heading = "input data")]
     pub data_file1: String,
 
-    /// Optional: file of genotype data from a second population
+    /// Optional: file of genotype data from a second population.
+    /// When `--from-params` is specfiied, the (pop_file) input is expected in a
+    /// tsv format with two columns: (i) sample id; (ii) the population indices,
+    /// either 0 or 1, indicating which allele frequency table to be used for
+    /// the two genotype to bo simulated, 0 corresponding the -f table, and 1
+    /// for the -F table.The tsv should not have header line(s).
     #[arg(
         short = 'I',
         long,
@@ -81,6 +84,7 @@ pub struct Arguments {
         default_value_t = false,
         group = "input_format",
         requires = "grp_freq_file1",
+        requires = "grp_data_file2",
         help_heading = "input data options"
     )]
     pub from_params: bool,
