@@ -157,4 +157,8 @@ impl States {
         }
         Some(((blk[0].id1, blk[0].id2), &self.state_pair[..]))
     }
+
+    pub fn get_num_unique_pairs(&self) -> u32 {
+        self.states.linear_group_by_key(|e| (e.id1, e.id2)).count() as u32
+    }
 }

@@ -86,6 +86,9 @@ pub enum Error {
 
     #[error("{0:?}")]
     SimulationError(#[from] crate::simulate::SimulationError),
+
+    #[error("Each sample id can only be used in one sample pair")]
+    SampleIdUsedInDifferntPairs,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -262,6 +265,10 @@ impl InputData {
         let npairs = params_vec.len();
         let nsamples = npairs * 2;
 
+        if npairs * 2 != (samples.pop1_nsam() + samples.pop2_nsam()) as usize {
+            return Err(Error::SampleIdUsedInDifferntPairs);
+        }
+
         if use_2nd_freq_file && args.freq_file2.is_none() {
             return Err(Error::MissingFreqFile2);
         }
@@ -428,6 +435,9 @@ impl InputData {
         };
 
         let mut states = States::from_state_file(&args.data_file1, &samples, &sites, &genome)?;
+        if states.get_num_unique_pairs() * 2 != samples.pop1_nsam() + samples.pop2_nsam() {
+            return Err(Error::SampleIdUsedInDifferntPairs);
+        }
 
         // let params_vec = crate::params::read_params_file(&args.data_file1, &samples)?;
         let use_2nd_freq_file = samples.pop2_nsam() > 0;
