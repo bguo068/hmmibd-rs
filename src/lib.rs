@@ -12,3 +12,4 @@ pub mod params;
 pub mod samples;
 pub mod simulate;
 pub mod sites;
+pub mod states;

@@ -28,7 +28,7 @@ fn main() -> Result<()> {
             ).into());
         }
     }
-    if cli.from_params
+    if (cli.from_params || cli.from_states)
         && ((cli.par_mode != 0)
             || cli.from_bcf
             || cli.from_bin
@@ -37,7 +37,7 @@ fn main() -> Result<()> {
             || cli.data_file2.is_some())
     {
         eprintln!(concat!(
-            "WARN: when --from-params is used, --from-bcf, --from-bin,",
+            "WARN: when --from-params/--from-states is used, --from-bcf, --from-bin,",
             " --good-file, and --bad-file options are ignored,",
             "--par-mode is forced to be 0"
         ));

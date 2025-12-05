@@ -3,9 +3,9 @@ use clap::{Args, Parser, ValueEnum};
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about, name = "hmmibd-rs", color=clap::ColorChoice::Always, styles=get_styles())]
 pub struct Arguments {
-    /// File of genotype data.
-    /// (1) by default, format for genotype file: tab-delimited text file, with
-    /// one single nucleotide polymorphism (SNP) per line. The first two columns
+    /// (1) File of genotype data.
+    /// The default format for genotype data is tab-delimited text file, with
+    /// one site per line. The first two columns
     /// are the chromosome and position, followed by one sample per column.
     /// A header line, giving the sample names, is required. Genotypes are
     /// coded by number: -1 for missing data, 0 for the first allele, 1 for the
@@ -13,18 +13,30 @@ pub struct Arguments {
     /// an equal footing. The variants must be in chromosome and position order,
     /// and can have between two and eight alleles (more, if you feel like
     /// changing max-allele).
+    ///
     /// (2) When `--from-bcf` is specified, the input is expected in BCF
     /// format, either from a file or stdin. If the argument is a file path,
     /// the BCF genotype is read from that file. If the argument is "-", the BCF
     /// genotype is read from stdin.
+    ///
     /// (3) When `--from-bin` is specified, a binary genotype input file
     /// is expected. See options `--bcf-to-bin-file-by-chromosome` or
     /// `bcf-to-bin-file` for generating binary genotype files.
-    /// (4) When `--from-params` is specfiied, the input is expected in a tsv
-    /// format with four columns: (i-ii) sample ids each with a row in the
-    /// pop_file specified as --data-file2 (iii) ibd probability 'r'; (iv)
-    /// another for the k parameter. Values on each row will be used to simulate
-    /// genotype of a pair of samples. The tsv should not have header line(s).
+    ///
+    /// (4) When `--from-params` is specified, the input is expected in a TSV
+    /// format with four columns: (i–ii) sample IDs (each must have a row in the
+    /// pop file specified as --data-file2), (iii) the IBD probability `r`, and
+    /// (iv) the `k` parameter. Values on each row will be used to simulate the
+    /// genotypes of a pair of samples. The TSV should not have header lines.
+    ///
+    /// (5) When `--from-states` is specified, the input is expected in a TSV
+    /// format with four columns: (i–ii) sample IDs (each must have a row in the
+    /// pop file specified as --data-file2), and (iii–iv) the start and end
+    /// positions of true IBD segments. All segments for a given pair will be
+    /// used to construct the true IBD-state trajectory, which is then used to
+    /// simulate the genotypes of the pair. The TSV should not have header
+    /// lines. If a pair has zero IBD segments, add a row for that pair with
+    /// start and end set to zero.
     #[arg(short = 'i', long, required = true, help_heading = "input data")]
     pub data_file1: String,
 
@@ -88,6 +100,18 @@ pub struct Arguments {
         help_heading = "input data options"
     )]
     pub from_params: bool,
+
+    /// Optional: flag indicating whether the input file is of states format
+    #[arg(
+        long,
+        default_value_t = false,
+        group = "input_format",
+        requires = "grp_freq_file1",
+        requires = "grp_data_file2",
+        help_heading = "input data options"
+    )]
+    pub from_states: bool,
+
     // ---- bcf file
     /// Optional: flag indicating whether the input file is of BCF format
     #[arg(
@@ -294,6 +318,7 @@ impl Arguments {
             from_bcf: false,
             from_bin: false,
             from_params: false,
+            from_states: false,
             bcf_filter_config: None,
             freq_file1: Some(String::from("c/samp_data/freqs_pf3k_Cambodia_13.txt")),
             freq_file2: Some(String::from("c/samp_data/freqs_pf3k_Ghana_13.txt")),
@@ -337,6 +362,7 @@ impl Arguments {
             from_bcf: true,
             from_bin: false,
             from_params: false,
+            from_states: false,
             bcf_filter_config: Some(String::from("testdata/pf7_data/dom_gt_config.toml")),
             freq_file1: None,
             freq_file2: None,

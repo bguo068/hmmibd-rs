@@ -15,6 +15,7 @@ use crate::{
     samples::{self, Samples},
     simulate,
     sites::{self, SiteInfoRaw, Sites},
+    states::States,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -44,6 +45,9 @@ pub enum Error {
 
     #[error("sites error: {0:?}")]
     Site(#[from] sites::Error),
+
+    #[error("state error: {0}")]
+    States(#[from] crate::states::Error),
 
     #[error("sample error: {0:?}")]
     Sample(#[from] samples::Error),
@@ -247,7 +251,7 @@ impl InputData {
     }
 
     pub fn from_simulation_based_on_params(args: &Arguments) -> Result<Self, Error> {
-        eprint!("running simulation");
+        eprintln!("running simulation");
         let pop_file = args
             .data_file2
             .as_ref()
@@ -401,9 +405,95 @@ impl InputData {
         })
     }
 
+    pub fn from_simulation_based_on_states(args: &Arguments) -> Result<Self, Error> {
+        eprintln!("running simulation");
+        let pop_file = args
+            .data_file2
+            .as_ref()
+            .ok_or(crate::data::Error::MissingDataFile2AsPopFile)?;
+        let samples = Samples::from_pop_file(pop_file)?;
+        let freq_file1 = args.freq_file1.as_ref().ok_or(Error::MissingFreqFile2)?;
+        let sitesinfo = Self::read_site_info_from_freq_file(freq_file1, args.min_snp_sep)?;
+        // create the genome object and site object
+        let (sites, genome) = sitesinfo.into_sites_and_genome(&args.rec_args)?;
+        let nsites = sites.get_num_sites();
+        if sites.get_num_chroms() > 1 {
+            return Err(Error::TooManyChromosomesForSimulation);
+        }
+        let freq1 = Self::read_freq_file(freq_file1, args, &genome, &sites)?;
+
+        let freq2 = match args.freq_file2.as_ref() {
+            Some(freq_file2) => Some(Self::read_freq_file(freq_file2, args, &genome, &sites)?),
+            None => None,
+        };
+
+        let mut states = States::from_state_file(&args.data_file1, &samples, &sites, &genome)?;
+
+        // let params_vec = crate::params::read_params_file(&args.data_file1, &samples)?;
+        let use_2nd_freq_file = samples.pop2_nsam() > 0;
+        let nsamples = samples.pop1_nsam() + samples.pop2_nsam();
+
+        if use_2nd_freq_file && args.freq_file2.is_none() {
+            return Err(Error::MissingFreqFile2);
+        }
+
+        let cm_diff = sites
+            .get_pos_cm_slice()
+            .iter()
+            .zip(sites.get_pos_cm_slice().iter().skip(1))
+            .map(
+                |(cm1, cm2)| (*cm2 - *cm1) / 100.0, /* cM to morgan conversion */
+            )
+            .collect_vec();
+
+        // intialize/allocate memory for genotype matrix states_vec
+        let mut geno_mat = Matrix::<u8>::from_shape(nsamples as usize, nsites, u8::MAX);
+        let mut pairs = Vec::new();
+
+        while let Some((pair, state_slice)) = states.next_pair_and_states() {
+            // println!("pair: {pair:?}");
+            pairs.push(pair);
+            let (gt1, gt2) = geno_mat
+                .get_row_pair_slice_mut(pair.0 as usize, pair.1 as usize)
+                .ok_or(Error::InvalidePairIndices)?;
+            simulate::simulate_genotype_for_pair_from_states(
+                &freq1,
+                freq2.as_ref().unwrap_or(&freq1),
+                &cm_diff,
+                args.eps,
+                state_slice,
+                gt1,
+                gt2,
+            )?;
+        }
+
+        let majall = Self::get_major_all(
+            &freq1,
+            freq2.as_ref(),
+            samples.pop1_nsam() as usize,
+            Some(samples.pop2_nsam() as usize),
+        )?;
+        let nall = Self::get_nall(&freq1, freq2.as_ref())?;
+
+        Ok(Self {
+            args: args.clone(),
+            geno: geno_mat,
+            freq1,
+            freq2,
+            sites,
+            genome,
+            pairs,
+            nall,
+            samples,
+            majall,
+        })
+    }
+
     pub fn from_args(args: &Arguments) -> Result<Self, Error> {
         if args.from_params {
             return Self::from_simulation_based_on_params(args);
+        } else if args.from_states {
+            return Self::from_simulation_based_on_states(args);
         }
 
         let bcf_gt = if args.from_bin {
