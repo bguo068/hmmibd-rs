@@ -149,8 +149,8 @@ impl States {
         if blk[0].end != 0 {
             for e in blk {
                 let i = self.positions.partition_point(|x| *x < e.start);
-                let j = self.positions.partition_point(|x| *x <= e.end) - 1;
-                self.state_pair[i..=j].iter_mut().for_each(|s| {
+                let j = self.positions.partition_point(|x| *x <= e.end);
+                self.state_pair[i..j].iter_mut().for_each(|s| {
                     *s = true;
                 });
             }
