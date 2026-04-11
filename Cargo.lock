@@ -98,9 +98,9 @@ dependencies = [
 
 [[package]]
 name = "bcf_reader"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f66a49618533849c95b4ade6781a219da8c2fef09a49431685a6c6c47d48286"
+checksum = "0d09d488068dca528f93e657ea31f21419fbf71779a81ba8f85cedd645091b87"
 dependencies = [
  "byteorder",
  "flate2",
