@@ -1,0 +1,169 @@
+name: Build + release on tag push
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux (glibc 2.28)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            glibc: '2.28'
+            bin: hmmibd-rs
+            package: tar
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            glibc: '2.28'
+            bin: hmmibd-rs
+            package: tar
+
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bin: hmmibd-rs
+            package: tar
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin: hmmibd-rs
+            package: tar
+
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: hmmibd-rs.exe
+            package: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      #
+      # Linux builds via zigbuild
+      #
+      - name: Install Zig
+        if: runner.os == 'Linux'
+        uses: mlugg/setup-zig@v2
+
+      - name: Install cargo-zigbuild
+        if: runner.os == 'Linux'
+        run: cargo install cargo-zigbuild --locked
+
+      - name: Build Linux
+        if: runner.os == 'Linux'
+        run: cargo zigbuild --release --target ${{ matrix.target }}.${{ matrix.glibc }}
+
+      # Zig's default glibc version varies by zig release, so assert the linked
+      # binary really fits the baseline instead of trusting the flag.
+      - name: Verify glibc baseline
+        if: runner.os == 'Linux'
+        run: |
+          bin=target/${{ matrix.target }}/release/${{ matrix.bin }}
+
+          required=$(readelf -W --version-info --dyn-syms "$bin" \
+            | grep -o 'GLIBC_[0-9][0-9.]*' \
+            | sed 's/^GLIBC_//' \
+            | sort -V \
+            | tail -n1)
+
+          if [ -z "$required" ]; then
+            echo "::error::could not read glibc symbol versions from $bin"
+            exit 1
+          fi
+          echo "$bin requires glibc $required"
+
+          if [ "$(printf '%s\n' "${{ matrix.glibc }}" "$required" | sort -V | tail -n1)" != "${{ matrix.glibc }}" ]; then
+            echo "::error::$bin requires glibc $required, above the ${{ matrix.glibc }} baseline"
+            exit 1
+          fi
+
+      #
+      # Native macOS / Windows builds
+      #
+      - name: Build Native
+        if: runner.os != 'Linux'
+        run: cargo build --release --target ${{ matrix.target }}
+
+      #
+      # Package Unix binaries
+      #
+      - name: Package Unix
+        if: matrix.package == 'tar'
+        shell: bash
+        run: |
+          mkdir package
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} package/hmmibd-rs
+
+          tar -C package -czf \
+            hmmibd-rs-${{ github.ref_name }}-${{ matrix.target }}.tar.gz \
+            hmmibd-rs
+
+      #
+      # Package Windows binaries
+      #
+      - name: Package Windows
+        if: matrix.package == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item `
+            "target/${{ matrix.target }}/release/${{ matrix.bin }}" `
+            "package/hmmibd-rs.exe"
+
+          Compress-Archive `
+            -Path "package/hmmibd-rs.exe" `
+            -DestinationPath "hmmibd-rs-${{ github.ref_name }}-${{ matrix.target }}.zip"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            *.tar.gz
+            *.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Decide prerelease
+        id: rel
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          prerelease: ${{ steps.rel.outputs.prerelease }}
+          generate_release_notes: true
+          files: dist/*
