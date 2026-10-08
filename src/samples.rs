@@ -61,8 +61,13 @@ impl Samples {
                     source: e,
                     path: std::path::PathBuf::from(bad_file),
                 })?;
-            for x in s.trim().split("\t") {
-                bad_samples.insert(x.to_owned());
+            // One sample id per line (hmmIBD format); tabs within a line
+            // are also accepted for backward compatibility.
+            for x in s.lines().flat_map(|l| l.split('\t')) {
+                let x = x.trim();
+                if !x.is_empty() {
+                    bad_samples.insert(x.to_owned());
+                }
             }
         }
 
