@@ -31,6 +31,23 @@ impl<'a> HmmRunner<'a> {
         out: &mut OutputBuffer<'a>,
         suppress_frac: bool,
     ) -> Result<()> {
+        // Pair-level filter on informative sites and discordance, applied
+        // before the HMM as in hmmIBD.c (pairs failing it produce no output).
+        let (n_info, n_discord) = self.count_informative_sites(pair);
+        {
+            let args = &self.data.args;
+            let discord = if n_info == 0 {
+                0.0
+            } else {
+                n_discord as f64 / n_info as f64
+            };
+            if (n_info < args.min_inform as usize)
+                || (discord > args.max_discord)
+                || (discord < args.min_discord)
+            {
+                return Ok(());
+            }
+        }
         let mut ms = ModelParamState::new(self.data);
         let mut cv = PerChrModelVariables::new();
         let mut rs = RunningStats::new();
@@ -40,6 +57,7 @@ impl<'a> HmmRunner<'a> {
         a.resize(total_nsites, [[0.0; 2]; 2]);
         b.resize(total_nsites, [0.0; 2]);
 
+        let mut converged_early = false;
         for iiter in 0..self.data.args.max_iter {
             ms.iiter = iiter as usize;
             ms.model.max_phi = 0.0;
@@ -47,10 +65,16 @@ impl<'a> HmmRunner<'a> {
 
             self.run_over_fit_iterations(pair, &mut ms, &mut rs, &mut cv, a, b, out)?;
             if ms.is_fit_finished() {
+                converged_early = true;
                 break;
             }
             // - update ms and finish_fit
             self.update_model(&rs, &mut ms);
+        }
+        if !converged_early {
+            // hmmIBD.c reports the loop bound (niter) when the fit did not
+            // converge within the allowed iterations.
+            ms.iiter = self.data.args.max_iter as usize;
         }
         if suppress_frac {
             return Ok(());
@@ -58,6 +82,29 @@ impl<'a> HmmRunner<'a> {
         // print fraction of allele IBD for a given pair
         self.print_hmm_frac(&ms, pair, &rs, out)?;
         Ok(())
+    }
+
+    /// Count informative sites (both genotypes called and not both equal to
+    /// the major allele) and discordant sites for a pair, over all sites.
+    /// Mirrors the `same_min`/`diff` tabulation in hmmIBD.c.
+    pub fn count_informative_sites(&self, pair: (usize, usize)) -> (usize, usize) {
+        let geno_x = &self.data.geno[pair.0];
+        let geno_y = &self.data.geno[pair.1];
+        let majall = &self.data.majall;
+        let mut n_info = 0usize;
+        let mut n_discord = 0usize;
+        for ((gx, gy), maj) in geno_x.iter().zip(geno_y.iter()).zip(majall.iter()) {
+            if gx.is_none() || gy.is_none() {
+                continue;
+            }
+            if gx != gy {
+                n_info += 1;
+                n_discord += 1;
+            } else if gx != maj {
+                n_info += 1;
+            }
+        }
+        (n_info, n_discord)
     }
 
     pub fn run_over_fit_iterations(
@@ -467,7 +514,7 @@ impl<'a> HmmRunner<'a> {
             t_seg_start = t;
         }
         // Process the "hanging" segments
-        add_seq = (nsites + 1) as f64;
+        add_seq = (pos[nsites - 1] - pos[t_seg_start] + 1) as f64;
         let ibd = cv.traj[nsites - 1];
         match ibd == 0 {
             true => rs.seq_ibd += add_seq,
@@ -536,7 +583,7 @@ impl<'a> HmmRunner<'a> {
         }
 
         // prevent model being trapped
-        if (ms.iiter < args.max_iter as usize) && (!ms.finish_fit) {
+        if (ms.iiter + 1 < args.max_iter as usize) && (!ms.finish_fit) {
             if pi[0] < 1e-5 {
                 pi[0] = 1e-5;
             } else if pi[0] > 1.0 - 1e-5 {
@@ -558,7 +605,7 @@ impl<'a> HmmRunner<'a> {
 
         // check fit
         if (delpi.abs() < args.fit_thresh_dpi)
-            && ((delk.abs() < args.fit_thresh_dk) || (delrelk < args.fit_thresh_drelk))
+            && ((delk.abs() < args.fit_thresh_dk) || (delrelk.abs() < args.fit_thresh_drelk))
         {
             ms.finish_fit = true;
         }
@@ -574,7 +621,11 @@ impl<'a> HmmRunner<'a> {
         let sample2 = &self.data.samples.v()[pair.1];
 
         let sum = ms.num_info_site;
-        let discord = ms.num_discord as f64 / ms.num_info_site as f64;
+        let discord = if sum == 0 {
+            0.0
+        } else {
+            ms.num_discord as f64 / ms.num_info_site as f64
+        };
         let max_phi = ms.model.max_phi;
         let iter = ms.iiter;
         let k_rec = ms.model.k_rec;
@@ -787,8 +838,8 @@ fn test_hmm() {
             load_data_from_hmm_seg_res("tmp_hmmibd.hmm.txt", sample_name_map)
         );
         assert_eq!(
-            load_data_from_hmm_frac_res("tmp_hmmibdrs.hmm.txt", sample_name_map),
-            load_data_from_hmm_frac_res("tmp_hmmibd.hmm.txt", sample_name_map)
+            load_data_from_hmm_frac_res("tmp_hmmibdrs.hmm_fract.txt", sample_name_map),
+            load_data_from_hmm_frac_res("tmp_hmmibd.hmm_fract.txt", sample_name_map)
         );
     }
 }

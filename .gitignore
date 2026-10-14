@@ -1,7 +1,9 @@
 /target
 tmp*
-!tests/cmp_c_vs_rust.sh
 tests/*
+# negations must come after tests/* (later rules win)
+!tests/cmp_c_vs_rust.sh
+!tests/c_vs_rust_consistency.rs
 
 # hmmIBD binary
 hmmIBD
